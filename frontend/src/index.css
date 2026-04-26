@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  margin: 0;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  width: 100%;
+}
+
+/* Hide scrollbar utility */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
