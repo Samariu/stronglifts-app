@@ -10,7 +10,7 @@ import BottomNav from './components/BottomNav';
 
 export default function App() {
   const { settings, loading, updateSettings } = useSettings();
-  const { sessions, upsertSession } = useSessions();
+  const { sessions, upsertSession, removeSession } = useSessions();
   const [tab, setTab] = useState('today');
 
   if (loading) {
@@ -36,7 +36,12 @@ export default function App() {
           <TodayView sessions={sessions} settings={settings} upsertSession={upsertSession} />
         )}
         {tab === 'history' && (
-          <HistoryView sessions={sessions} settings={settings} />
+          <HistoryView
+            sessions={sessions}
+            settings={settings}
+            upsertSession={upsertSession}
+            removeSession={removeSession}
+          />
         )}
         {tab === 'progress' && (
           <ProgressView sessions={sessions} settings={settings} />

@@ -210,7 +210,7 @@ export default function TodayView({ sessions, settings, upsertSession }) {
                     )}
                   </div>
                   <div className="text-xs text-gray-600 mt-1">
-                    {formatPlates(weight, settings.barWeight)}
+                    {formatPlates(weight, settings.barWeight, settings.availablePlates)}
                   </div>
                 </div>
                 <button
@@ -226,9 +226,9 @@ export default function TodayView({ sessions, settings, upsertSession }) {
               {expandedWarmup === key && (
                 <div className="mt-3">
                   <WarmupCard
-                    exerciseName={ex.name}
                     workingWeight={weight}
                     barWeight={settings.barWeight}
+                    availablePlates={settings.availablePlates}
                   />
                 </div>
               )}

@@ -60,6 +60,7 @@ export const makeSessionId = (date) => `session-${date}`;
 // Default settings
 export const DEFAULT_SETTINGS = {
   barWeight: 20,
+  availablePlates: [25, 20, 15, 10, 5, 2.5, 1.25],
   weights: {
     squat: 20,
     benchPress: 20,

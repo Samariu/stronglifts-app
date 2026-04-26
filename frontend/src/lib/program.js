@@ -8,19 +8,20 @@ export const EXERCISES = {
   deadlift:      { name: 'Deadlift',       increment: 5,   restSeconds: 180, isLower: true  },
 };
 
+export const ALL_PLATE_SIZES = [25, 20, 15, 10, 5, 2.5, 1.25];
+
 export const WORKOUT_A = ['squat', 'benchPress', 'barbellRow'];
 export const WORKOUT_B = ['squat', 'overheadPress', 'deadlift'];
 
-// Deadlift is 1×5, everything else is 5×5
 export const getSetsReps = (exerciseKey) =>
   exerciseKey === 'deadlift' ? { sets: 1, reps: 5 } : { sets: 5, reps: 5 };
 
-export const getWorkoutType  = (sessionIndex) => (sessionIndex % 2 === 0 ? 'A' : 'B');
-export const getWorkoutExercises = (type) => (type === 'A' ? WORKOUT_A : WORKOUT_B);
+export const getWorkoutType      = (sessionIndex) => (sessionIndex % 2 === 0 ? 'A' : 'B');
+export const getWorkoutExercises = (type)         => (type === 'A' ? WORKOUT_A : WORKOUT_B);
 
-export const epley1RM      = (weight, reps) => weight * (1 + reps / 30);
-export const roundToNearest = (value, step) => Math.round(value / step) * step;
-export const deload         = (weight)      => roundToNearest(weight * 0.9, 2.5);
+export const epley1RM       = (weight, reps) => weight * (1 + reps / 30);
+export const roundToNearest = (value, step)  => Math.round(value / step) * step;
+export const deload         = (weight)       => roundToNearest(weight * 0.9, 2.5);
 
 // Whether a single exercise was fully completed in a session
 export const exerciseSucceeded = (session, exerciseKey) => {
@@ -29,7 +30,7 @@ export const exerciseSucceeded = (session, exerciseKey) => {
   return sets.length >= total && sets.slice(0, total).every((s) => s.completed);
 };
 
-// Consecutive failed workouts for an exercise (only sessions that include it)
+// Consecutive failed workouts for an exercise
 export const countConsecutiveFailures = (sessions, exerciseKey) => {
   let count = 0;
   const relevant = sessions
@@ -42,8 +43,7 @@ export const countConsecutiveFailures = (sessions, exerciseKey) => {
   return count;
 };
 
-// Compute the working weight for an exercise for the NEXT session,
-// derived entirely from session history. Falls back to settingWeight (from setup).
+// Compute the working weight for the next session from history
 export const computeNextWeight = (sessions, exerciseKey, settingWeight) => {
   const relevant = sessions
     .filter((s) => getWorkoutExercises(s.workoutType).includes(exerciseKey))
@@ -51,57 +51,84 @@ export const computeNextWeight = (sessions, exerciseKey, settingWeight) => {
 
   if (relevant.length === 0) return settingWeight;
 
-  const last = relevant[relevant.length - 1];
+  const last       = relevant[relevant.length - 1];
   const lastWeight = last.exercises?.[exerciseKey]?.weight ?? settingWeight;
 
-  // Count consecutive failures up to and including last session
   let failures = 0;
   for (let i = relevant.length - 1; i >= 0; i--) {
     if (exerciseSucceeded(relevant[i], exerciseKey)) break;
     failures++;
   }
 
-  if (failures >= 3) return deload(lastWeight);
+  if (failures >= 3)                      return deload(lastWeight);
   if (exerciseSucceeded(last, exerciseKey)) return lastWeight + EXERCISES[exerciseKey].increment;
   return lastWeight;
 };
 
-// Warmup sets leading up to working weight
-export const getWarmupSets = (workingWeight, barWeight = 20) => {
-  if (workingWeight <= barWeight + 5) return [];
-  return [
-    { weight: barWeight,                                      reps: 5, label: 'Bar' },
-    { weight: roundToNearest(workingWeight * 0.4, 2.5),       reps: 5, label: '40%' },
-    { weight: roundToNearest(workingWeight * 0.6, 2.5),       reps: 3, label: '60%' },
-    { weight: roundToNearest(workingWeight * 0.8, 2.5),       reps: 2, label: '80%' },
-  ].filter((s, i, arr) => {
-    if (s.weight < barWeight)     return false;
-    if (s.weight >= workingWeight) return false;
-    if (i > 0 && s.weight <= arr[i - 1].weight) return false;
-    return true;
-  });
-};
-
-// Plates per side for a given total weight
-export const getPlatesPerSide = (targetWeight, barWeight = 20) => {
-  const available = [25, 20, 15, 10, 5, 2.5, 1.25];
+// Plates per side — uses availablePlates from settings (falls back to all plates)
+export const getPlatesPerSide = (targetWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES) => {
+  const sorted  = [...availablePlates].sort((a, b) => b - a); // largest first
   let remaining = (targetWeight - barWeight) / 2;
-  const plates = [];
+  const plates  = [];
   if (remaining < 0) return plates;
-  for (const plate of available) {
+  for (const plate of sorted) {
     while (remaining >= plate - 0.001) {
       plates.push(plate);
       remaining -= plate;
-      remaining = Math.round(remaining * 1000) / 1000;
+      remaining  = Math.round(remaining * 1000) / 1000;
     }
   }
   return plates;
 };
 
-export const formatPlates = (targetWeight, barWeight = 20) => {
-  const plates = getPlatesPerSide(targetWeight, barWeight);
+export const formatPlates = (targetWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES) => {
+  const plates = getPlatesPerSide(targetWeight, barWeight, availablePlates);
   if (plates.length === 0) return 'Bar only';
   const counts = {};
   for (const p of plates) counts[p] = (counts[p] || 0) + 1;
   return Object.entries(counts).map(([p, c]) => `${c}×${p}kg`).join(' + ');
+};
+
+// Warmup sets — always exactly 5 sets × 5 reps, plate-optimized.
+// Weights are cumulative subsets of the working weight's plate stack (add-only progression).
+// Same weight may repeat if there aren't 5 distinct steps.
+export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES) => {
+  if (workingWeight <= barWeight) return [];
+
+  const finalPlates = getPlatesPerSide(workingWeight, barWeight, availablePlates);
+  if (finalPlates.length === 0) return [];
+
+  // Build cumulative achievable weights by adding each plate pair smallest-first
+  const sorted = [...finalPlates].sort((a, b) => a - b);
+  const candidates = [barWeight];
+  let acc = barWeight;
+  for (const plate of sorted) {
+    acc += plate * 2;
+    if (acc < workingWeight) candidates.push(acc);
+  }
+  // candidates = subset weights below working weight, e.g. [20, 50] for 100kg
+
+  if (candidates.length === 0) return [];
+
+  // Always pick exactly 5 warmup weights, spread across the candidate range.
+  // Repeat nearest candidate when there aren't 5 unique ones.
+  const WARMUP_COUNT = 5;
+  const warmupWeights = [];
+
+  if (candidates.length >= WARMUP_COUNT) {
+    // Evenly space 5 picks across the candidate list
+    for (let i = 0; i < WARMUP_COUNT; i++) {
+      const idx = Math.round((i / (WARMUP_COUNT - 1)) * (candidates.length - 1));
+      warmupWeights.push(candidates[idx]);
+    }
+  } else {
+    // Fewer candidates than needed — distribute 5 slots across available candidates
+    // by repeating proportionally
+    for (let i = 0; i < WARMUP_COUNT; i++) {
+      const idx = Math.floor((i / WARMUP_COUNT) * candidates.length);
+      warmupWeights.push(candidates[idx]);
+    }
+  }
+
+  return warmupWeights.map((w) => ({ weight: w, reps: 5 }));
 };

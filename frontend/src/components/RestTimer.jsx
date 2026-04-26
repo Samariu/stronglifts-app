@@ -4,7 +4,7 @@ const beep = () => {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     [0, 0.15, 0.3].forEach((delay) => {
-      const osc = ctx.createOscillator();
+      const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -19,38 +19,87 @@ const beep = () => {
 
 export default function RestTimer({ seconds, onDone }) {
   const [remaining, setRemaining] = useState(seconds);
-  const [running, setRunning] = useState(true);
-  const interval = useRef(null);
+  const [running,   setRunning]   = useState(true);
 
-  const clear = () => clearInterval(interval.current);
+  // Stores the absolute timestamp when the timer should reach zero
+  const endTimeRef   = useRef(Date.now() + seconds * 1000);
+  const intervalRef  = useRef(null);
+  const firedRef     = useRef(false); // prevent double-beep
 
+  const clearTick = () => clearInterval(intervalRef.current);
+
+  // Recompute remaining from the stored end timestamp
+  const tick = useCallback(() => {
+    const r = Math.ceil((endTimeRef.current - Date.now()) / 1000);
+    if (r <= 0) {
+      setRemaining(0);
+      clearTick();
+      setRunning(false);
+      if (!firedRef.current) {
+        firedRef.current = true;
+        beep();
+        onDone?.();
+      }
+    } else {
+      setRemaining(r);
+    }
+  }, [onDone]);
+
+  // Reset when the `seconds` prop changes (new timer started)
   useEffect(() => {
+    clearTick();
+    firedRef.current  = false;
+    endTimeRef.current = Date.now() + seconds * 1000;
     setRemaining(seconds);
     setRunning(true);
   }, [seconds]);
 
+  // Start / stop the interval
   useEffect(() => {
-    if (!running) { clear(); return; }
-    interval.current = setInterval(() => {
-      setRemaining((r) => {
-        if (r <= 1) {
-          clearInterval(interval.current);
-          setRunning(false);
-          beep();
-          onDone?.();
-          return 0;
-        }
-        return r - 1;
-      });
-    }, 1000);
-    return clear;
-  }, [running, onDone]);
+    if (!running) { clearTick(); return; }
+    intervalRef.current = setInterval(tick, 500); // 500ms for snappier display
+    return clearTick;
+  }, [running, tick]);
+
+  // Re-sync when the tab / phone returns from background
+  useEffect(() => {
+    const onVisible = () => {
+      if (!document.hidden && running) tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [running, tick]);
+
+  const pause = () => {
+    if (!running) {
+      // Resume: push end time forward by how much is left
+      endTimeRef.current = Date.now() + remaining * 1000;
+      setRunning(true);
+    } else {
+      clearTick();
+      setRunning(false);
+    }
+  };
+
+  const restart = () => {
+    clearTick();
+    firedRef.current   = false;
+    endTimeRef.current = Date.now() + seconds * 1000;
+    setRemaining(seconds);
+    setRunning(true);
+  };
+
+  const skip = () => {
+    clearTick();
+    setRemaining(0);
+    setRunning(false);
+    if (!firedRef.current) { firedRef.current = true; onDone?.(); }
+  };
 
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
-  const pct = remaining / seconds;
-
-  const circumference = 2 * Math.PI * 54;
+  const pct  = seconds > 0 ? remaining / seconds : 0;
+  const circ = 2 * Math.PI * 54;
 
   return (
     <div className="flex flex-col items-center gap-4 py-4">
@@ -62,9 +111,9 @@ export default function RestTimer({ seconds, onDone }) {
             stroke={remaining === 0 ? '#22c55e' : '#f97316'}
             strokeWidth="8"
             strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={circumference * (1 - pct)}
-            className="transition-all duration-1000"
+            strokeDasharray={circ}
+            strokeDashoffset={circ * (1 - pct)}
+            className="transition-all duration-500"
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
@@ -79,22 +128,13 @@ export default function RestTimer({ seconds, onDone }) {
       )}
 
       <div className="flex gap-3">
-        <button
-          onClick={() => setRunning((r) => !r)}
-          className="px-5 py-2.5 bg-gray-800 rounded-xl text-sm font-medium hover:bg-gray-700"
-        >
+        <button onClick={pause}    className="px-5 py-2.5 bg-gray-800 rounded-xl text-sm font-medium hover:bg-gray-700">
           {running ? 'Pause' : 'Resume'}
         </button>
-        <button
-          onClick={() => { clear(); setRemaining(seconds); setRunning(true); }}
-          className="px-5 py-2.5 bg-gray-800 rounded-xl text-sm font-medium hover:bg-gray-700"
-        >
+        <button onClick={restart}  className="px-5 py-2.5 bg-gray-800 rounded-xl text-sm font-medium hover:bg-gray-700">
           Restart
         </button>
-        <button
-          onClick={() => { clear(); setRemaining(0); setRunning(false); onDone?.(); }}
-          className="px-5 py-2.5 bg-gray-800 rounded-xl text-sm font-medium hover:bg-gray-700"
-        >
+        <button onClick={skip}     className="px-5 py-2.5 bg-gray-800 rounded-xl text-sm font-medium hover:bg-gray-700">
           Skip
         </button>
       </div>

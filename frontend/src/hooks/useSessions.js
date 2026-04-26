@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getAllSessions, saveSession, makeSessionId } from '../lib/db';
+import { getAllSessions, saveSession, deleteSession } from '../lib/db';
 import { queueSync } from '../lib/sync';
 
 export const useSessions = () => {
@@ -21,5 +21,10 @@ export const useSessions = () => {
     await reload();
   }, [reload]);
 
-  return { sessions, loading, upsertSession, reload };
+  const removeSession = useCallback(async (id) => {
+    await deleteSession(id);
+    await reload();
+  }, [reload]);
+
+  return { sessions, loading, upsertSession, removeSession, reload };
 };
