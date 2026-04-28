@@ -1,7 +1,7 @@
 import { getWarmupSets, formatPlates } from '../lib/program';
 
-export default function WarmupCard({ workingWeight, barWeight, availablePlates, restSeconds, onStartWorkingSets }) {
-  const sets = getWarmupSets(workingWeight, barWeight, availablePlates);
+export default function WarmupCard({ workingWeight, barWeight, availablePlates, includeBarSets = true, restSeconds, onStartWorkingSets }) {
+  const sets = getWarmupSets(workingWeight, barWeight, availablePlates, includeBarSets);
   if (sets.length === 0) return null;
 
   return (

@@ -89,25 +89,33 @@ export const formatPlates = (targetWeight, barWeight = 20, availablePlates = ALL
   return Object.entries(counts).map(([p, c]) => `${c}×${p}kg`).join(' + ');
 };
 
-// Warmup sets — percentage-based ramp (40/50/60/70/80 % of working weight),
+// Warmup sets following the StrongLifts protocol:
+//   - Squat / Bench / OHP (includeBarSets=true):  2 × empty bar, then 3 evenly-spaced ramp sets
+//   - Deadlift / Barbell Row (includeBarSets=false): 3 evenly-spaced ramp sets only
+// Ramp steps are at 25 %, 50 %, 75 % of the range between bar and working weight,
 // each rounded to the nearest achievable weight given the smallest available plate.
-// No restack constraint; each set shows its own full plate setup.
-export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES) => {
+export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES, includeBarSets = true) => {
   if (workingWeight <= barWeight) return [];
 
   const smallestPlate = Math.min(...availablePlates);
-  const step = smallestPlate * 2; // smallest weight increment (one plate each side)
+  const step = smallestPlate * 2;
 
   const roundToAchievable = (raw) => {
     const diff = Math.max(0, raw - barWeight);
     return barWeight + Math.round(diff / step) * step;
   };
 
-  const seen = new Set();
   const sets = [];
+  if (includeBarSets) {
+    sets.push({ weight: barWeight, reps: 5 });
+    sets.push({ weight: barWeight, reps: 5 });
+  }
 
-  for (const pct of [0.4, 0.5, 0.6, 0.7, 0.8]) {
-    const w = roundToAchievable(workingWeight * pct);
+  // 3 ramp steps evenly spaced between bar and working weight
+  const seen = new Set(sets.map((s) => s.weight));
+  for (let i = 1; i <= 3; i++) {
+    const raw = barWeight + (workingWeight - barWeight) * (i / 4); // 25 %, 50 %, 75 %
+    const w   = roundToAchievable(raw);
     if (w >= workingWeight) continue;
     if (seen.has(w)) continue;
     seen.add(w);

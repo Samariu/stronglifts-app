@@ -270,6 +270,7 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
                     workingWeight={weight}
                     barWeight={settings.barWeight}
                     availablePlates={settings.availablePlates}
+                    includeBarSets={key !== 'deadlift' && key !== 'barbellRow'}
                     restSeconds={restSecs}
                     onStartWorkingSets={(secs) => {
                       setExpandedWarmup(null);
