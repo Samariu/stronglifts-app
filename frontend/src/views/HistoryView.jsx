@@ -3,6 +3,7 @@ import {
   EXERCISES, getWorkoutExercises, getWorkoutType, getSetsReps,
 } from '../lib/program';
 import { makeSessionId } from '../lib/db';
+import { exportSessionsCSV } from '../lib/export';
 
 function getDaysInMonth(year, month) { return new Date(year, month + 1, 0).getDate(); }
 function getFirstDayOfMonth(year, month) { return new Date(year, month, 1).getDay(); }
@@ -95,10 +96,19 @@ export default function HistoryView({ sessions, settings, upsertSession, removeS
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-600 inline-block" />Workout B</span>
           <span className="text-gray-600">Tap any past day to add/edit</span>
         </div>
+        {sessions.length > 0 && (
+          <button
+            onClick={() => exportSessionsCSV(sessions)}
+            className="w-full py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-white bg-gray-800 hover:bg-gray-700 transition-colors"
+          >
+            Export as CSV
+          </button>
+        )}
       </div>
 
       {editing && (
         <SessionEditor
+          key={editing.date}
           date={editing.date}
           session={editing.session}
           sessions={sessions}

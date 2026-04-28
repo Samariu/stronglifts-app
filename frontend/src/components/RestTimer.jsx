@@ -17,7 +17,7 @@ const beep = () => {
   } catch {}
 };
 
-export default function RestTimer({ seconds, onDone }) {
+export default function RestTimer({ seconds, onDone, onDismiss, compact = false }) {
   const [remaining, setRemaining] = useState(seconds);
   const [running,   setRunning]   = useState(true);
 
@@ -100,6 +100,36 @@ export default function RestTimer({ seconds, onDone }) {
   const secs = remaining % 60;
   const pct  = seconds > 0 ? remaining / seconds : 0;
   const circ = 2 * Math.PI * 54;
+
+  if (compact) {
+    return (
+      <div className="border-b border-gray-800">
+        <div className="h-0.5 bg-gray-800">
+          <div
+            className={`h-full transition-all duration-500 ${remaining === 0 ? 'bg-green-500' : 'bg-orange-500'}`}
+            style={{ width: `${pct * 100}%` }}
+          />
+        </div>
+        <div className="flex items-center gap-2 px-4 py-2.5">
+          <span className={`font-mono font-bold tabular-nums text-sm ${remaining === 0 ? 'text-green-400' : 'text-white'}`}>
+            {remaining === 0 ? 'Rest done!' : `${mins}:${String(secs).padStart(2, '0')}`}
+          </span>
+          <span className="text-gray-600 text-xs flex-1">rest</span>
+          <button onClick={pause} className="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg font-medium">
+            {running ? 'Pause' : 'Resume'}
+          </button>
+          <button onClick={skip} className="px-3 py-1 text-xs bg-gray-800 hover:bg-gray-700 rounded-lg font-medium">
+            Skip
+          </button>
+          {onDismiss && (
+            <button onClick={onDismiss} className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-white text-xl leading-none ml-1">
+              ×
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center gap-4 py-4">

@@ -1,12 +1,14 @@
 import { getWarmupSets, formatPlates } from '../lib/program';
 
-export default function WarmupCard({ workingWeight, barWeight, availablePlates }) {
+export default function WarmupCard({ workingWeight, barWeight, availablePlates, restSeconds, onStartWorkingSets }) {
   const sets = getWarmupSets(workingWeight, barWeight, availablePlates);
   if (sets.length === 0) return null;
 
   return (
     <div className="bg-gray-800 rounded-xl p-3 space-y-2">
-      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Warmup — 5 sets ×5 reps each</h3>
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+        Warmup — {sets.length} sets
+      </h3>
       <div className="space-y-1.5">
         {sets.map((s, i) => (
           <div key={i} className="flex items-center gap-3 text-sm">
@@ -27,6 +29,14 @@ export default function WarmupCard({ workingWeight, barWeight, availablePlates }
           </span>
         </div>
       </div>
+      {onStartWorkingSets && (
+        <button
+          onClick={() => onStartWorkingSets(restSeconds)}
+          className="w-full mt-1 py-2 rounded-xl text-sm font-semibold bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 active:scale-95 transition-all border border-orange-500/20"
+        >
+          Done — start rest timer
+        </button>
+      )}
     </div>
   );
 }

@@ -89,46 +89,30 @@ export const formatPlates = (targetWeight, barWeight = 20, availablePlates = ALL
   return Object.entries(counts).map(([p, c]) => `${c}×${p}kg`).join(' + ');
 };
 
-// Warmup sets — always exactly 5 sets × 5 reps, plate-optimized.
-// Weights are cumulative subsets of the working weight's plate stack (add-only progression).
-// Same weight may repeat if there aren't 5 distinct steps.
+// Warmup sets — percentage-based ramp (40/50/60/70/80 % of working weight),
+// each rounded to the nearest achievable weight given the smallest available plate.
+// No restack constraint; each set shows its own full plate setup.
 export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES) => {
   if (workingWeight <= barWeight) return [];
 
-  const finalPlates = getPlatesPerSide(workingWeight, barWeight, availablePlates);
-  if (finalPlates.length === 0) return [];
+  const smallestPlate = Math.min(...availablePlates);
+  const step = smallestPlate * 2; // smallest weight increment (one plate each side)
 
-  // Build cumulative achievable weights by adding each plate pair smallest-first
-  const sorted = [...finalPlates].sort((a, b) => a - b);
-  const candidates = [barWeight];
-  let acc = barWeight;
-  for (const plate of sorted) {
-    acc += plate * 2;
-    if (acc < workingWeight) candidates.push(acc);
-  }
-  // candidates = subset weights below working weight, e.g. [20, 50] for 100kg
+  const roundToAchievable = (raw) => {
+    const diff = Math.max(0, raw - barWeight);
+    return barWeight + Math.round(diff / step) * step;
+  };
 
-  if (candidates.length === 0) return [];
+  const seen = new Set();
+  const sets = [];
 
-  // Always pick exactly 5 warmup weights, spread across the candidate range.
-  // Repeat nearest candidate when there aren't 5 unique ones.
-  const WARMUP_COUNT = 5;
-  const warmupWeights = [];
-
-  if (candidates.length >= WARMUP_COUNT) {
-    // Evenly space 5 picks across the candidate list
-    for (let i = 0; i < WARMUP_COUNT; i++) {
-      const idx = Math.round((i / (WARMUP_COUNT - 1)) * (candidates.length - 1));
-      warmupWeights.push(candidates[idx]);
-    }
-  } else {
-    // Fewer candidates than needed — distribute 5 slots across available candidates
-    // by repeating proportionally
-    for (let i = 0; i < WARMUP_COUNT; i++) {
-      const idx = Math.floor((i / WARMUP_COUNT) * candidates.length);
-      warmupWeights.push(candidates[idx]);
-    }
+  for (const pct of [0.4, 0.5, 0.6, 0.7, 0.8]) {
+    const w = roundToAchievable(workingWeight * pct);
+    if (w >= workingWeight) continue;
+    if (seen.has(w)) continue;
+    seen.add(w);
+    sets.push({ weight: w, reps: 5 });
   }
 
-  return warmupWeights.map((w) => ({ weight: w, reps: 5 }));
+  return sets;
 };
