@@ -74,12 +74,18 @@ export default function App() {
           <ProgressView sessions={sessions} settings={settings} />
         )}
         {tab === 'settings' && (
-          <SettingsView settings={settings} updateSettings={updateSettings} />
+          <SettingsView
+            settings={settings}
+            sessions={sessions}
+            updateSettings={updateSettings}
+            needRefresh={needRefresh}
+            updateServiceWorker={updateServiceWorker}
+          />
         )}
       </div>
 
       {/* Fixed footer: compact rest timer (when active) + bottom nav */}
-      <div className="fixed bottom-0 left-0 right-0 z-50">
+      <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900">
         {timerSeconds !== null && (
           <RestTimer
             key={timerKey}

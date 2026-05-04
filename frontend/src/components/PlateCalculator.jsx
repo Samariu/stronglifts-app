@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { getPlatesPerSide, roundToNearest } from '../lib/program';
+import { getPlatesPerSide, roundToNearest, ALL_PLATE_SIZES } from '../lib/program';
 
-export default function PlateCalculator({ barWeight = 20 }) {
+export default function PlateCalculator({ barWeight = 20, availablePlates = ALL_PLATE_SIZES }) {
   const [target, setTarget] = useState(60);
 
-  const plates = getPlatesPerSide(target, barWeight);
+  const plates = getPlatesPerSide(target, barWeight, availablePlates);
   const counts = {};
   for (const p of plates) counts[p] = (counts[p] || 0) + 1;
 

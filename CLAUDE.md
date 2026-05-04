@@ -10,9 +10,9 @@ All commands run from the repo root unless noted.
 npm run dev          # Start Vite dev server (frontend only)
 npm run build        # Production build → frontend/dist/
 npm run preview      # Preview the production build locally
-npm run lint         # ESLint (run from frontend/ or via cd frontend && npm run lint)
 npm run backend      # Start Express backend (port 3001)
 npm run backend:dev  # Start backend with --watch
+cd frontend && npm run lint  # ESLint (no root-level lint script)
 ```
 
 There are no tests.
@@ -46,6 +46,47 @@ Both hooks call `queueSync()` after every write, which enqueues changes for the 
 Express 5 + better-sqlite3. Two tables: `sessions` and `settings`. All upserts use `updated_at`-based conflict resolution (last-write-wins). The backend also serves the built frontend from `frontend/dist/`.
 
 Run it with `npm run backend` from the repo root; it listens on port 3001. Set `backendUrl` in app settings to enable sync.
+
+### Data shapes
+
+**Session** (stored in IndexedDB `sessions`, keyed by `id`):
+```js
+{
+  id: 'session-YYYY-MM-DD',   // makeSessionId(date) — one per calendar day
+  date: 'YYYY-MM-DD',
+  sessionIndex: number,        // count of all past sessions (today excluded)
+  workoutType: 'A' | 'B',     // derived from sessionIndex parity; can be overridden in UI
+  exercises: {
+    [exerciseKey]: {
+      weight: number,          // kg
+      sets: [{ completed: boolean, ts: number }],
+    },
+  },
+  completed: boolean,
+  updatedAt: number,           // ms timestamp, used for backend conflict resolution
+}
+```
+
+**Settings** (stored in IndexedDB `settings`, single key `'config'`). Canonical defaults live in `lib/db.js → DEFAULT_SETTINGS`:
+```js
+{
+  barWeight: 20,
+  availablePlates: number[],   // subset of ALL_PLATE_SIZES from program.js
+  weights: { squat, benchPress, barbellRow, overheadPress, deadlift },  // starting weights
+  restTimers: { upper: 90, lower: 180 },  // seconds; upper = bench/row/OHP, lower = squat/deadlift
+  setupComplete: boolean,      // gates SetupWizard — false on first launch
+  backendUrl: string,          // empty string disables sync
+}
+```
+
+### First-run flow
+
+`App.jsx` renders `<SetupWizard>` when `settings.setupComplete` is falsy. The wizard calls `updateSettings({ ...formData, setupComplete: true })` on completion, which persists to IndexedDB and dismisses the wizard.
+
+### Other frontend modules
+
+- `lib/export.js` — CSV export of all sessions (triggered from SettingsView)
+- `views/ProgressView.jsx` — uses Recharts for weight-over-time charts
 
 ### Deployment
 

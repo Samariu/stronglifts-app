@@ -72,6 +72,21 @@ export const DEFAULT_SETTINGS = {
     upper: 90,
     lower: 180,
   },
+  increments: {
+    squat: 2.5,
+    benchPress: 2.5,
+    barbellRow: 2.5,
+    overheadPress: 2.5,
+    deadlift: 5.0,
+  },
+  rom: {
+    squat: 0.6,
+    benchPress: 0.5,
+    barbellRow: 0.5,
+    overheadPress: 0.6,
+    deadlift: 0.65,
+  },
+  csvImportConflict: 'ask',
   setupComplete: false,
   backendUrl: '',
 };

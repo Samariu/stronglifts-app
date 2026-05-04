@@ -3,6 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { EXERCISES, getWorkoutExercises, getSetsReps, epley1RM } from '../lib/program';
+import { DEFAULT_SETTINGS } from '../lib/db';
 import PlateCalculator from '../components/PlateCalculator';
 
 const EXERCISE_KEYS = Object.keys(EXERCISES);
@@ -15,12 +16,51 @@ const COLORS = {
   deadlift:      '#f87171',
 };
 
+// Energy comparison templates. Each gets totalJoules as input and returns a string.
+const ENERGY_COMPARISONS = [
+  (j) => `charged your phone ${(j / 37800).toFixed(1)} times`,
+  (j) => `boiled ${(j / 83680).toFixed(1)} cups of water`,
+  (j) => `powered a 100 W bulb for ${Math.round(j / 100)} seconds`,
+  (j) => `launched ${Math.round(j / 140)} tennis balls at 250 km/h`,
+  (j) => `${(j / 14715).toFixed(2)}× lifting a car 1 metre`,
+  (j) => `powered a laptop for ${Math.round(j / 65)} seconds`,
+  (j) => `${Math.round(j / 156)} mosquitoes launched to escape velocity`,
+  (j) => `${(j / 3200).toFixed(1)} professional boxer punches`,
+  (j) => `lifted the Eiffel Tower ${(j / (7300000 * 9.81)).toFixed(5)} metres`,
+  (j) => `moved a 70 kg person ${(j / (70 * 9.81)).toFixed(1)} metres upward`,
+  (j) => `${(j / 4184000).toFixed(4)} kg of TNT equivalent`,
+  (j) => `${((j / 8.4e13) * 100).toFixed(8)}% of a nuclear bomb`,
+];
+
+function seededShuffle(arr, seed) {
+  const a = [...arr];
+  let s = seed;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = Math.abs(s) % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function formatEnergy(joules) {
+  if (joules >= 1_000_000) return `${(joules / 1_000_000).toFixed(2)} MJ`;
+  if (joules >= 1_000)     return `${(joules / 1_000).toFixed(1)} kJ`;
+  return `${Math.round(joules)} J`;
+}
+
+function formatDistance(meters) {
+  if (meters >= 1000) return `${(meters / 1000).toFixed(2)} km`;
+  return `${Math.round(meters)} m`;
+}
+
 export default function ProgressView({ sessions, settings }) {
-  const [activeTab,       setActiveTab]       = useState('weight');
+  const [activeTab,        setActiveTab]        = useState('weight');
   const [selectedExercise, setSelectedExercise] = useState('squat');
 
-  // Build per-exercise chart data from session history
-  // Each session stores the actual weight used in exercises[key].weight
+  const rom = settings.rom ?? DEFAULT_SETTINGS.rom;
+
+  // Per-exercise chart data
   const exerciseData = useMemo(() => {
     const result = {};
     for (const key of EXERCISE_KEYS) {
@@ -35,7 +75,7 @@ export default function ProgressView({ sessions, settings }) {
           const successSets = sets.filter((sv) => sv.completed).length;
           if (weight === null || successSets === 0) return null;
           return {
-            date:   s.date.slice(5), // MM-DD
+            date:   s.date.slice(5),
             weight,
             est1RM: Math.round(epley1RM(weight, reps)),
           };
@@ -45,16 +85,79 @@ export default function ProgressView({ sessions, settings }) {
     return result;
   }, [sessions]);
 
-  const data          = exerciseData[selectedExercise] ?? [];
-  const lastEntry     = data[data.length - 1];
-  const latestWeight  = lastEntry?.weight  ?? settings.weights?.[selectedExercise] ?? 20;
-  const latest1RM     = lastEntry?.est1RM  ?? Math.round(epley1RM(latestWeight, 5));
+  // Totals: kg moved, distance, energy per exercise
+  const totals = useMemo(() => {
+    const result = {};
+    let totalJoules = 0;
+    for (const key of EXERCISE_KEYS) {
+      let kgMoved = 0;
+      let distM   = 0;
+      const romM  = rom[key] ?? 0.5;
+      for (const s of sessions) {
+        const exData = s.exercises?.[key];
+        if (!exData) continue;
+        const { reps } = getSetsReps(key);
+        const completedSets = (exData.sets ?? []).filter((sv) => sv.completed).length;
+        const weight = exData.weight ?? 0;
+        kgMoved += weight * completedSets * reps;
+        distM   += completedSets * reps * romM;
+        totalJoules += weight * 9.81 * romM * completedSets * reps;
+      }
+      result[key] = { kgMoved, distM };
+    }
+    result._totalJoules = totalJoules;
+    return result;
+  }, [sessions, rom]);
 
-  const dataKey = activeTab === '1rm' ? 'est1RM' : 'weight';
+  // Pick 3 energy comparisons, seeded by today's date so they change daily
+  const comparisons = useMemo(() => {
+    const seed = parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ''), 10);
+    return seededShuffle(ENERGY_COMPARISONS, seed).slice(0, 3);
+  }, []);
+
+  const data         = exerciseData[selectedExercise] ?? [];
+  const lastEntry    = data[data.length - 1];
+  const latestWeight = lastEntry?.weight  ?? settings.weights?.[selectedExercise] ?? 20;
+  const latest1RM    = lastEntry?.est1RM  ?? Math.round(epley1RM(latestWeight, 5));
+  const dataKey      = activeTab === '1rm' ? 'est1RM' : 'weight';
+  const totalJoules  = totals._totalJoules;
 
   return (
     <div className="p-4 space-y-4 max-w-lg mx-auto">
-      <h1 className="text-2xl font-bold">Progress</h1>
+      <h1 className="text-2xl font-bold">Stats</h1>
+
+      {/* Energy totals card */}
+      {sessions.length > 0 && (
+        <div className="bg-gray-900 rounded-2xl p-4 space-y-3">
+          <h2 className="font-semibold text-gray-300">All-Time Totals</h2>
+          <div className="space-y-2">
+            {EXERCISE_KEYS.map((key) => {
+              const { kgMoved, distM } = totals[key] ?? {};
+              if (!kgMoved) return null;
+              return (
+                <div key={key} className="flex items-center justify-between text-sm">
+                  <span className="text-gray-400">{EXERCISES[key].name}</span>
+                  <div className="flex gap-3 text-right">
+                    <span className="font-mono text-white">{kgMoved.toLocaleString()} kg</span>
+                    <span className="font-mono text-gray-500">{formatDistance(distM)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="border-t border-gray-800 pt-3 space-y-1">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-400">Total energy</span>
+              <span className="font-mono font-bold text-orange-400">{formatEnergy(totalJoules)}</span>
+            </div>
+            {totalJoules > 0 && comparisons.map((fn, i) => (
+              <div key={i} className="text-xs text-gray-600 text-right">
+                ≈ {fn(totalJoules)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="flex bg-gray-900 rounded-xl p-1 gap-1">
@@ -163,7 +266,7 @@ export default function ProgressView({ sessions, settings }) {
       )}
 
       {activeTab === 'plates' && (
-        <PlateCalculator barWeight={settings.barWeight} />
+        <PlateCalculator barWeight={settings.barWeight} availablePlates={settings.availablePlates} />
       )}
     </div>
   );

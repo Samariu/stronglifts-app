@@ -1,7 +1,7 @@
 const TABS = [
   { id: 'today', label: 'Today', icon: '🏋️' },
   { id: 'history', label: 'History', icon: '📅' },
-  { id: 'progress', label: 'Progress', icon: '📈' },
+  { id: 'progress', label: 'Stats', icon: '📈' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
 ];
 

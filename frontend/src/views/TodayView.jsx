@@ -10,6 +10,7 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export default function TodayView({ sessions, settings, upsertSession, onStartTimer }) {
   const [expandedWarmup, setExpandedWarmup] = useState(null);
+  const [warmupDone, setWarmupDone] = useState(new Set());
   const [typeOverride, setTypeOverride] = useState(null);
   const [showSets, setShowSets] = useState(false);
 
@@ -26,6 +27,8 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
     return pastSessions.length;
   }, [sessions, todayId]);
 
+  const getIncrement = (key) => settings.increments?.[key] ?? EXERCISES[key].increment;
+
   // Effective workout type: explicit override > saved session > computed from index
   const workoutType = typeOverride ?? existingSession?.workoutType ?? getWorkoutType(sessionIndex);
   const exercises   = getWorkoutExercises(workoutType);
@@ -39,10 +42,10 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
     const result = {};
     for (const key of exercises) {
       result[key] = existingSession?.exercises?.[key]?.weight
-        ?? computeNextWeight(pastSessions, key, settings.weights[key] ?? 20);
+        ?? computeNextWeight(pastSessions, key, settings.weights[key] ?? 20, getIncrement(key));
     }
     return result;
-  }, [exercises, existingSession, pastSessions, settings.weights]);
+  }, [exercises, existingSession, pastSessions, settings.weights, settings.increments]); // eslint-disable-line
 
   const [setResults, setSetResults] = useState(() => {
     if (existingSession) return existingSession.exercises ?? {};
@@ -86,10 +89,10 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
     const newExercises = getWorkoutExercises(t);
     const init = {};
     for (const key of newExercises) {
-      init[key] = { sets: [], weight: computeNextWeight(pastSessions, key, settings.weights?.[key] ?? 20) };
+      init[key] = { sets: [], weight: computeNextWeight(pastSessions, key, settings.weights?.[key] ?? 20, settings.increments?.[key] ?? EXERCISES[key].increment) };
     }
     setSetResults(init);
-  }, [workoutType, setResults, pastSessions, settings.weights]);
+  }, [workoutType, setResults, pastSessions, settings.weights, settings.increments]);
 
   const logSet = useCallback(
     async (exerciseKey, completed) => {
@@ -256,11 +259,16 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
                 </div>
                 <button
                   onClick={() =>
-                    setExpandedWarmup(expandedWarmup === key ? null : key)
+                    !warmupDone.has(key) && setExpandedWarmup(expandedWarmup === key ? null : key)
                   }
-                  className="text-xs text-gray-500 hover:text-gray-300 mt-1 px-2 py-1 bg-gray-800 rounded-lg shrink-0"
+                  disabled={warmupDone.has(key)}
+                  className={`text-xs mt-1 px-2 py-1 rounded-lg shrink-0 transition-colors ${
+                    warmupDone.has(key)
+                      ? 'bg-green-900/50 text-green-500 cursor-default'
+                      : 'text-gray-500 hover:text-gray-300 bg-gray-800'
+                  }`}
                 >
-                  Warmup
+                  {warmupDone.has(key) ? 'Warmed up ✓' : 'Warmup'}
                 </button>
               </div>
 
@@ -274,6 +282,7 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
                     restSeconds={restSecs}
                     onStartWorkingSets={(secs) => {
                       setExpandedWarmup(null);
+                      setWarmupDone((prev) => new Set([...prev, key]));
                       onStartTimer(secs);
                     }}
                   />

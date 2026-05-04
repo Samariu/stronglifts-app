@@ -43,8 +43,9 @@ export const countConsecutiveFailures = (sessions, exerciseKey) => {
   return count;
 };
 
-// Compute the working weight for the next session from history
-export const computeNextWeight = (sessions, exerciseKey, settingWeight) => {
+// Compute the working weight for the next session from history.
+// Pass a custom increment to override the exercise default (e.g., from settings.increments).
+export const computeNextWeight = (sessions, exerciseKey, settingWeight, increment = EXERCISES[exerciseKey].increment) => {
   const relevant = sessions
     .filter((s) => getWorkoutExercises(s.workoutType).includes(exerciseKey))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -60,8 +61,8 @@ export const computeNextWeight = (sessions, exerciseKey, settingWeight) => {
     failures++;
   }
 
-  if (failures >= 3)                      return deload(lastWeight);
-  if (exerciseSucceeded(last, exerciseKey)) return lastWeight + EXERCISES[exerciseKey].increment;
+  if (failures >= 3)                        return deload(lastWeight);
+  if (exerciseSucceeded(last, exerciseKey)) return lastWeight + increment;
   return lastWeight;
 };
 
@@ -111,10 +112,13 @@ export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = A
     sets.push({ weight: barWeight, reps: 5 });
   }
 
-  // 3 ramp steps evenly spaced between bar and working weight
+  // Ramp steps evenly spaced between bar and working weight.
+  // With bar sets (squat/bench/OHP): 3 steps → total 5 sets.
+  // Without bar sets (deadlift/row): 5 steps → total 5 sets.
+  const rampCount = includeBarSets ? 3 : 5;
   const seen = new Set(sets.map((s) => s.weight));
-  for (let i = 1; i <= 3; i++) {
-    const raw = barWeight + (workingWeight - barWeight) * (i / 4); // 25 %, 50 %, 75 %
+  for (let i = 1; i <= rampCount; i++) {
+    const raw = barWeight + (workingWeight - barWeight) * (i / (rampCount + 1));
     const w   = roundToAchievable(raw);
     if (w >= workingWeight) continue;
     if (seen.has(w)) continue;

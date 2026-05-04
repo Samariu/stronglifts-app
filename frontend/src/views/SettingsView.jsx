@@ -1,19 +1,31 @@
 import { useState } from 'react';
-import { EXERCISES, ALL_PLATE_SIZES } from '../lib/program';
+import { EXERCISES, ALL_PLATE_SIZES, computeNextWeight } from '../lib/program';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { getSyncQueueLength } from '../lib/sync';
 
-export default function SettingsView({ settings, updateSettings }) {
+const INCREMENT_OPTIONS = {
+  deadlift: [2.5, 5.0],
+  default:  [1.25, 2.5],
+};
+
+export default function SettingsView({ settings, sessions, updateSettings, needRefresh, updateServiceWorker }) {
   const [backendUrl, setBackendUrl] = useState(settings.backendUrl ?? '');
   const [saved, setSaved] = useState(false);
 
   const availablePlates = settings.availablePlates ?? DEFAULT_SETTINGS.availablePlates;
+  const increments      = settings.increments      ?? DEFAULT_SETTINGS.increments;
+  const rom             = settings.rom             ?? DEFAULT_SETTINGS.rom;
+
+  const getIncrement = (key) => increments[key] ?? EXERCISES[key].increment;
+
+  const currentWeight = (key) =>
+    computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key));
 
   const togglePlate = (plate) => {
     const next = availablePlates.includes(plate)
       ? availablePlates.filter((p) => p !== plate)
       : [...availablePlates, plate].sort((a, b) => b - a);
-    if (next.length === 0) return; // always keep at least one plate
+    if (next.length === 0) return;
     updateSettings({ availablePlates: next });
   };
 
@@ -27,31 +39,70 @@ export default function SettingsView({ settings, updateSettings }) {
     <div className="p-4 space-y-5 max-w-lg mx-auto">
       <h1 className="text-2xl font-bold">Settings</h1>
 
-      {/* Working weights */}
+      {/* Current working weights */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
-        <h2 className="font-semibold text-gray-300">Working Weights</h2>
-        {Object.entries(EXERCISES).map(([key, ex]) => (
-          <div key={key} className="flex items-center gap-3">
-            <span className="flex-1 text-sm">{ex.name}</span>
-            <button
-              onClick={() => updateSettings({ weights: { [key]: Math.max(settings.barWeight, (settings.weights[key] ?? 20) - ex.increment) } })}
-              className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
-            >−</button>
-            <span className="w-16 text-center font-mono font-bold text-orange-400">
-              {settings.weights[key] ?? 20}kg
-            </span>
-            <button
-              onClick={() => updateSettings({ weights: { [key]: (settings.weights[key] ?? 20) + ex.increment } })}
-              className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
-            >+</button>
-          </div>
-        ))}
+        <div>
+          <h2 className="font-semibold text-gray-300">Current Working Weights</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Reflects your actual progression. Adjust to override next workout weight.</p>
+        </div>
+        {Object.entries(EXERCISES).map(([key, ex]) => {
+          const displayed = currentWeight(key);
+          const inc = getIncrement(key);
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <span className="flex-1 text-sm">{ex.name}</span>
+              <button
+                onClick={() => updateSettings({ weights: { [key]: Math.max(settings.barWeight ?? 20, displayed - inc) } })}
+                className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+              >−</button>
+              <span className="w-16 text-center font-mono font-bold text-orange-400">
+                {displayed}kg
+              </span>
+              <button
+                onClick={() => updateSettings({ weights: { [key]: displayed + inc } })}
+                className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+              >+</button>
+            </div>
+          );
+        })}
+      </section>
+
+      {/* Weight increment */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-gray-300">Weight Increment</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Future workouts only — does not change history.</p>
+        </div>
+        {Object.entries(EXERCISES).map(([key, ex]) => {
+          const options = INCREMENT_OPTIONS[key] ?? INCREMENT_OPTIONS.default;
+          const current = getIncrement(key);
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <span className="flex-1 text-sm">{ex.name}</span>
+              <div className="flex bg-gray-800 rounded-lg p-0.5 gap-0.5">
+                {options.map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => updateSettings({ increments: { [key]: opt } })}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                      current === opt
+                        ? 'bg-orange-500 text-white'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    +{opt}kg
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </section>
 
       {/* Available plates */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <h2 className="font-semibold text-gray-300">Available Plates</h2>
-        <p className="text-xs text-gray-500">Toggle the plates your gym has. Used for warmup calculation and plate math.</p>
+        <p className="text-xs text-gray-500">Toggle the plates your gym has. Used for warmup and plate math.</p>
         <div className="flex flex-wrap gap-2">
           {ALL_PLATE_SIZES.map((plate) => {
             const active = availablePlates.includes(plate);
@@ -111,6 +162,74 @@ export default function SettingsView({ settings, updateSettings }) {
             className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
           >+</button>
         </div>
+      </section>
+
+      {/* Range of motion */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-gray-300">Range of Motion</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Used to estimate distance and energy on the Stats tab.</p>
+        </div>
+        {Object.entries(EXERCISES).map(([key, ex]) => {
+          const val = rom[key] ?? DEFAULT_SETTINGS.rom[key] ?? 0.5;
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <span className="flex-1 text-sm">{ex.name}</span>
+              <button
+                onClick={() => updateSettings({ rom: { [key]: Math.max(0.2, Math.round((val - 0.05) * 100) / 100) } })}
+                className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+              >−</button>
+              <span className="w-16 text-center font-mono font-bold text-gray-300">
+                {val.toFixed(2)}m
+              </span>
+              <button
+                onClick={() => updateSettings({ rom: { [key]: Math.min(1.2, Math.round((val + 0.05) * 100) / 100) } })}
+                className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+              >+</button>
+            </div>
+          );
+        })}
+      </section>
+
+      {/* CSV import conflict */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <h2 className="font-semibold text-gray-300">CSV Import</h2>
+        <p className="text-xs text-gray-500">When importing a CSV and a session already exists for that date:</p>
+        <div className="flex bg-gray-800 rounded-lg p-0.5 gap-0.5">
+          {[
+            { value: 'ask',  label: 'Ask each time' },
+            { value: 'skip', label: 'Always skip' },
+          ].map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => updateSettings({ csvImportConflict: value })}
+              className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${
+                (settings.csvImportConflict ?? 'ask') === value
+                  ? 'bg-orange-500 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* App updates */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <h2 className="font-semibold text-gray-300">App Updates</h2>
+        {needRefresh ? (
+          <button
+            onClick={() => updateServiceWorker(true)}
+            className="w-full py-3 rounded-xl font-semibold bg-orange-500 hover:bg-orange-400 text-white"
+          >
+            Reload to update
+          </button>
+        ) : (
+          <div className="py-3 rounded-xl text-center text-sm text-gray-500 bg-gray-800">
+            App is up to date
+          </div>
+        )}
       </section>
 
       {/* Backend sync */}
