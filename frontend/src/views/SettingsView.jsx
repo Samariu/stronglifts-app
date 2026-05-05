@@ -22,8 +22,11 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
 
   const getIncrement = (key) => increments[key] ?? EXERCISES[key].increment;
 
-  const currentWeight = (key) =>
-    computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key));
+  const currentWeight = (key) => {
+    const override = settings.nextWeightOverrides?.[key];
+    if (override != null) return override;
+    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key));
+  };
 
   const togglePlate = (plate) => {
     const next = availablePlates.includes(plate)
@@ -78,14 +81,14 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
             <div key={key} className="flex items-center gap-3">
               <span className="flex-1 text-sm">{ex.name}</span>
               <button
-                onClick={() => updateSettings({ weights: { [key]: Math.max(settings.barWeight ?? 20, displayed - inc) } })}
+                onClick={() => updateSettings({ nextWeightOverrides: { [key]: Math.max(settings.barWeight ?? 20, displayed - inc) } })}
                 className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
               >−</button>
               <span className="w-16 text-center font-mono font-bold text-orange-400">
                 {displayed}kg
               </span>
               <button
-                onClick={() => updateSettings({ weights: { [key]: displayed + inc } })}
+                onClick={() => updateSettings({ nextWeightOverrides: { [key]: displayed + inc } })}
                 className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
               >+</button>
             </div>

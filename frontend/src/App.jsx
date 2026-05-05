@@ -60,7 +60,7 @@ export default function App() {
 
       <div className={`flex-1 overflow-y-auto ${timerSeconds !== null ? 'pb-[calc(11rem+env(safe-area-inset-bottom))]' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'}`}>
         {tab === 'today' && (
-          <TodayView sessions={sessions} settings={settings} upsertSession={upsertSession} onStartTimer={startTimer} />
+          <TodayView sessions={sessions} settings={settings} upsertSession={upsertSession} updateSettings={updateSettings} onStartTimer={startTimer} />
         )}
         {tab === 'history' && (
           <HistoryView

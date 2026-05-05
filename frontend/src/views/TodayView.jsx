@@ -8,7 +8,7 @@ import WarmupCard from '../components/WarmupCard';
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
-export default function TodayView({ sessions, settings, upsertSession, onStartTimer }) {
+export default function TodayView({ sessions, settings, upsertSession, updateSettings, onStartTimer }) {
   const [expandedWarmup, setExpandedWarmup] = useState(null);
   const WARMUP_KEY = `warmupDone-${new Date().toISOString().slice(0, 10)}`;
   const [warmupDone, setWarmupDone] = useState(() => {
@@ -48,10 +48,11 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
     const result = {};
     for (const key of exercises) {
       result[key] = existingSession?.exercises?.[key]?.weight
+        ?? settings.nextWeightOverrides?.[key]
         ?? computeNextWeight(pastSessions, key, settings.weights[key] ?? 20, getIncrement(key));
     }
     return result;
-  }, [exercises, existingSession, pastSessions, settings.weights, settings.increments]); // eslint-disable-line
+  }, [exercises, existingSession, pastSessions, settings.weights, settings.increments, settings.nextWeightOverrides]); // eslint-disable-line
 
   const [setResults, setSetResults] = useState(() => {
     if (existingSession) return existingSession.exercises ?? {};
@@ -83,8 +84,13 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
   );
 
   const persist = useCallback(
-    async (results) => { await upsertSession(buildSession(results)); },
-    [upsertSession, buildSession],
+    async (results, exerciseKey) => {
+      await upsertSession(buildSession(results));
+      if (exerciseKey && settings.nextWeightOverrides?.[exerciseKey] != null) {
+        await updateSettings({ nextWeightOverrides: { [exerciseKey]: null } });
+      }
+    },
+    [upsertSession, buildSession, settings.nextWeightOverrides, updateSettings],
   );
 
   const switchType = useCallback((t) => {
@@ -116,7 +122,7 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
         },
       };
       setSetResults(updated);
-      await persist(updated);
+      await persist(updated, current.length === 0 ? exerciseKey : null);
 
       // No timer after the final set of an exercise
       if (!isLastSet) {

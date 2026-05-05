@@ -86,6 +86,7 @@ export const DEFAULT_SETTINGS = {
     overheadPress: 0.6,
     deadlift: 0.65,
   },
+  nextWeightOverrides: {},
   csvImportConflict: 'ask',
   setupComplete: false,
   backendUrl: '',
