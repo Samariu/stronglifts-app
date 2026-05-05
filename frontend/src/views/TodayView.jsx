@@ -10,7 +10,13 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export default function TodayView({ sessions, settings, upsertSession, onStartTimer }) {
   const [expandedWarmup, setExpandedWarmup] = useState(null);
-  const [warmupDone, setWarmupDone] = useState(new Set());
+  const WARMUP_KEY = `warmupDone-${new Date().toISOString().slice(0, 10)}`;
+  const [warmupDone, setWarmupDone] = useState(() => {
+    try {
+      const s = sessionStorage.getItem(`warmupDone-${new Date().toISOString().slice(0, 10)}`);
+      return new Set(s ? JSON.parse(s) : []);
+    } catch { return new Set(); }
+  });
   const [typeOverride, setTypeOverride] = useState(null);
   const [showSets, setShowSets] = useState(false);
 
@@ -301,7 +307,11 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
                     restSeconds={restSecs}
                     onStartWorkingSets={(secs) => {
                       setExpandedWarmup(null);
-                      setWarmupDone((prev) => new Set([...prev, key]));
+                      setWarmupDone((prev) => {
+                        const next = new Set([...prev, key]);
+                        try { sessionStorage.setItem(WARMUP_KEY, JSON.stringify([...next])); } catch {}
+                        return next;
+                      });
                       onStartTimer(secs);
                     }}
                   />

@@ -104,25 +104,25 @@ export default function RestTimer({ seconds, onDone, onDismiss, compact = false 
   if (compact) {
     return (
       <div className="bg-gray-900 border-t border-gray-800">
-        <div className="h-1.5 bg-gray-800">
+        <div className="h-3 bg-gray-800">
           <div
             className={`h-full transition-all duration-500 ${remaining === 0 ? 'bg-green-500' : 'bg-orange-500'}`}
             style={{ width: `${pct * 100}%` }}
           />
         </div>
-        <div className="flex items-center gap-3 px-4 py-3">
-          <span className={`font-mono font-bold tabular-nums text-2xl ${remaining === 0 ? 'text-green-400' : 'text-white'}`}>
+        <div className="flex items-center gap-3 px-4 py-6">
+          <span className={`font-mono font-bold tabular-nums text-5xl ${remaining === 0 ? 'text-green-400' : 'text-white'}`}>
             {remaining === 0 ? 'Done!' : `${mins}:${String(secs).padStart(2, '0')}`}
           </span>
-          <span className="text-gray-600 text-sm flex-1">rest</span>
-          <button onClick={pause} className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 rounded-lg font-medium">
+          <span className="text-gray-600 text-base flex-1">rest</span>
+          <button onClick={pause} className="px-3 py-2 text-base bg-gray-800 hover:bg-gray-700 rounded-lg font-medium">
             {running ? 'Pause' : 'Resume'}
           </button>
-          <button onClick={skip} className="px-3 py-1.5 text-sm bg-gray-800 hover:bg-gray-700 rounded-lg font-medium">
+          <button onClick={skip} className="px-3 py-2 text-base bg-gray-800 hover:bg-gray-700 rounded-lg font-medium">
             Skip
           </button>
           {onDismiss && (
-            <button onClick={onDismiss} className="w-8 h-8 flex items-center justify-center text-gray-500 hover:text-white text-2xl leading-none ml-1">
+            <button onClick={onDismiss} className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-white text-3xl leading-none ml-1">
               ×
             </button>
           )}

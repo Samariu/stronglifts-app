@@ -58,7 +58,7 @@ export default function App() {
         </div>
       )}
 
-      <div className={`flex-1 overflow-y-auto ${timerSeconds !== null ? 'pb-[calc(8rem+env(safe-area-inset-bottom))]' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'}`}>
+      <div className={`flex-1 overflow-y-auto ${timerSeconds !== null ? 'pb-[calc(11rem+env(safe-area-inset-bottom))]' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'}`}>
         {tab === 'today' && (
           <TodayView sessions={sessions} settings={settings} upsertSession={upsertSession} onStartTimer={startTimer} />
         )}

@@ -25,26 +25,6 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
   const currentWeight = (key) =>
     computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key));
 
-  const lowerOption = (key) => (INCREMENT_OPTIONS[key] ?? INCREMENT_OPTIONS.default)[0];
-  const isOnLower   = (key) => getIncrement(key) === lowerOption(key);
-
-  const handleIncrementChange = (key, opt) => {
-    const isSelectingLower = opt === lowerOption(key);
-    if (!isSelectingLower) {
-      updateSettings({ increments: { [key]: opt } });
-      return;
-    }
-    // Enforce: at most one exercise on the lower setting
-    const newIncrements = {};
-    for (const k of Object.keys(EXERCISES)) {
-      if (k === key) { newIncrements[k] = opt; continue; }
-      const opts = INCREMENT_OPTIONS[k] ?? INCREMENT_OPTIONS.default;
-      // Reset any other exercise that is currently on lower
-      newIncrements[k] = isOnLower(k) ? opts[1] : getIncrement(k);
-    }
-    updateSettings({ increments: newIncrements });
-  };
-
   const togglePlate = (plate) => {
     const next = availablePlates.includes(plate)
       ? availablePlates.filter((p) => p !== plate)
@@ -85,25 +65,39 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
         )}
       </section>
 
-      {/* Current working weights — read-only */}
+      {/* Current working weights */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div>
           <h2 className="font-semibold text-gray-300">Current Working Weights</h2>
-          <p className="text-xs text-gray-600 mt-0.5">Your next workout's working weight based on progression.</p>
+          <p className="text-xs text-gray-600 mt-0.5">Your next workout's working weight based on progression. Adjust to override.</p>
         </div>
-        {Object.entries(EXERCISES).map(([key, ex]) => (
-          <div key={key} className="flex items-center justify-between">
-            <span className="text-sm text-gray-400">{ex.name}</span>
-            <span className="font-mono font-bold text-orange-400">{currentWeight(key)}kg</span>
-          </div>
-        ))}
+        {Object.entries(EXERCISES).map(([key, ex]) => {
+          const displayed = currentWeight(key);
+          const inc = getIncrement(key);
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <span className="flex-1 text-sm">{ex.name}</span>
+              <button
+                onClick={() => updateSettings({ weights: { [key]: Math.max(settings.barWeight ?? 20, displayed - inc) } })}
+                className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+              >−</button>
+              <span className="w-16 text-center font-mono font-bold text-orange-400">
+                {displayed}kg
+              </span>
+              <button
+                onClick={() => updateSettings({ weights: { [key]: displayed + inc } })}
+                className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+              >+</button>
+            </div>
+          );
+        })}
       </section>
 
       {/* Weight increment */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div>
           <h2 className="font-semibold text-gray-300">Weight Increment</h2>
-          <p className="text-xs text-gray-600 mt-0.5">Future workouts only. Only one exercise can use the lower increment at a time.</p>
+          <p className="text-xs text-gray-600 mt-0.5">Future workouts only — does not change history.</p>
         </div>
         {Object.entries(EXERCISES).map(([key, ex]) => {
           const options = INCREMENT_OPTIONS[key] ?? INCREMENT_OPTIONS.default;
@@ -115,7 +109,7 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
                 {options.map((opt) => (
                   <button
                     key={opt}
-                    onClick={() => handleIncrementChange(key, opt)}
+                    onClick={() => updateSettings({ increments: { [key]: opt } })}
                     className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
                       current === opt
                         ? 'bg-orange-500 text-white'
