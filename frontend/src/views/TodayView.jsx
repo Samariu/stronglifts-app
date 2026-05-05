@@ -141,6 +141,25 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
     [setResults, persist],
   );
 
+  const logExtraSet = useCallback(
+    async (exerciseKey) => {
+      const ex = EXERCISES[exerciseKey];
+      const current = setResults[exerciseKey]?.sets ?? [];
+      const updated = {
+        ...setResults,
+        [exerciseKey]: {
+          weight: workingWeights[exerciseKey],
+          sets: [...current, { completed: true, ts: Date.now() }],
+        },
+      };
+      setSetResults(updated);
+      await persist(updated);
+      const restSecs = settings.restTimers?.[ex.isLower ? 'lower' : 'upper'] ?? (ex.isLower ? 180 : 90);
+      onStartTimer(restSecs);
+    },
+    [setResults, workingWeights, persist, settings.restTimers, onStartTimer],
+  );
+
   const failures = useMemo(() => {
     const result = {};
     for (const key of exercises) result[key] = countConsecutiveFailures(pastSessions, key);
@@ -295,7 +314,7 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
               <div className="flex gap-2">
                 {Array.from({ length: totalSets }).map((_, i) => {
                   const set    = done[i];
-                  const isNext = i === done.length;
+                  const isNext = i === done.length && !isComplete;
                   return (
                     <button
                       key={i}
@@ -321,7 +340,14 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
                 })}
               </div>
 
-              {/* Fail / undo row */}
+              {/* Extra sets indicator */}
+              {done.length > totalSets && (
+                <div className="text-xs text-green-500 text-center font-medium">
+                  +{done.length - totalSets} extra set{done.length - totalSets !== 1 ? 's' : ''}
+                </div>
+              )}
+
+              {/* Fail / undo / extra set row */}
               {done.length > 0 && (
                 <div className="flex gap-2">
                   {!isComplete && (
@@ -330,6 +356,14 @@ export default function TodayView({ sessions, settings, upsertSession, onStartTi
                       className="flex-1 h-10 rounded-xl text-sm font-medium bg-red-900/40 text-red-400 hover:bg-red-900/60"
                     >
                       Failed set
+                    </button>
+                  )}
+                  {isComplete && (
+                    <button
+                      onClick={() => logExtraSet(key)}
+                      className="flex-1 h-10 rounded-xl text-sm font-medium bg-gray-800 text-gray-400 hover:bg-gray-700"
+                    >
+                      + Set
                     </button>
                   )}
                   <button

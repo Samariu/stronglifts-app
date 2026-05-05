@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { EXERCISES, getWorkoutExercises, getSetsReps, epley1RM } from '../lib/program';
+import { EXERCISES, getWorkoutExercises, getSetsReps, epley1RM, getWarmupSets } from '../lib/program';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import PlateCalculator from '../components/PlateCalculator';
 
@@ -85,29 +85,41 @@ export default function ProgressView({ sessions, settings }) {
     return result;
   }, [sessions]);
 
-  // Totals: kg moved, distance, energy per exercise
+  // Totals: kg moved, distance, energy per exercise (working sets + 5 assumed warmup sets)
   const totals = useMemo(() => {
+    const barWeight      = settings.barWeight ?? 20;
+    const availablePlates = settings.availablePlates ?? [];
     const result = {};
     let totalJoules = 0;
     for (const key of EXERCISE_KEYS) {
       let kgMoved = 0;
       let distM   = 0;
-      const romM  = rom[key] ?? 0.5;
+      const romM          = rom[key] ?? 0.5;
+      const includeBarSets = key !== 'deadlift' && key !== 'barbellRow';
       for (const s of sessions) {
         const exData = s.exercises?.[key];
         if (!exData) continue;
         const { reps } = getSetsReps(key);
         const completedSets = (exData.sets ?? []).filter((sv) => sv.completed).length;
         const weight = exData.weight ?? 0;
+        if (completedSets === 0) continue;
+        // Working sets
         kgMoved += weight * completedSets * reps;
         distM   += completedSets * reps * romM;
         totalJoules += weight * 9.81 * romM * completedSets * reps;
+        // Warmup sets (5 assumed, using current plate settings)
+        const warmupSets = getWarmupSets(weight, barWeight, availablePlates, includeBarSets);
+        for (const ws of warmupSets) {
+          kgMoved += ws.weight * ws.reps;
+          distM   += ws.reps * romM;
+          totalJoules += ws.weight * 9.81 * romM * ws.reps;
+        }
       }
-      result[key] = { kgMoved, distM };
+      result[key] = { kgMoved: Math.round(kgMoved), distM };
     }
     result._totalJoules = totalJoules;
     return result;
-  }, [sessions, rom]);
+  }, [sessions, rom, settings.barWeight, settings.availablePlates]);
 
   // Pick 3 energy comparisons, seeded by today's date so they change daily
   const comparisons = useMemo(() => {

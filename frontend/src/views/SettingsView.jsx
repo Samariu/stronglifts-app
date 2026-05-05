@@ -3,6 +3,10 @@ import { EXERCISES, ALL_PLATE_SIZES, computeNextWeight } from '../lib/program';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { getSyncQueueLength } from '../lib/sync';
 
+/* eslint-disable no-undef */
+const APP_VERSION = __APP_VERSION__;
+
+// [lower, higher] options per exercise
 const INCREMENT_OPTIONS = {
   deadlift: [2.5, 5.0],
   default:  [1.25, 2.5],
@@ -20,6 +24,26 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
 
   const currentWeight = (key) =>
     computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key));
+
+  const lowerOption = (key) => (INCREMENT_OPTIONS[key] ?? INCREMENT_OPTIONS.default)[0];
+  const isOnLower   = (key) => getIncrement(key) === lowerOption(key);
+
+  const handleIncrementChange = (key, opt) => {
+    const isSelectingLower = opt === lowerOption(key);
+    if (!isSelectingLower) {
+      updateSettings({ increments: { [key]: opt } });
+      return;
+    }
+    // Enforce: at most one exercise on the lower setting
+    const newIncrements = {};
+    for (const k of Object.keys(EXERCISES)) {
+      if (k === key) { newIncrements[k] = opt; continue; }
+      const opts = INCREMENT_OPTIONS[k] ?? INCREMENT_OPTIONS.default;
+      // Reset any other exercise that is currently on lower
+      newIncrements[k] = isOnLower(k) ? opts[1] : getIncrement(k);
+    }
+    updateSettings({ increments: newIncrements });
+  };
 
   const togglePlate = (plate) => {
     const next = availablePlates.includes(plate)
@@ -39,39 +63,47 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
     <div className="p-4 space-y-5 max-w-lg mx-auto">
       <h1 className="text-2xl font-bold">Settings</h1>
 
-      {/* Current working weights */}
+      {/* App version + update */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="font-semibold text-gray-300">StrongLifts 5×5</span>
+            <span className="ml-2 text-xs text-gray-600 font-mono">v{APP_VERSION}</span>
+          </div>
+        </div>
+        {needRefresh ? (
+          <button
+            onClick={() => updateServiceWorker(true)}
+            className="w-full py-3 rounded-xl font-semibold bg-orange-500 hover:bg-orange-400 text-white"
+          >
+            Reload to update
+          </button>
+        ) : (
+          <div className="py-2.5 rounded-xl text-center text-sm text-gray-500 bg-gray-800">
+            App is up to date
+          </div>
+        )}
+      </section>
+
+      {/* Current working weights — read-only */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div>
           <h2 className="font-semibold text-gray-300">Current Working Weights</h2>
-          <p className="text-xs text-gray-600 mt-0.5">Reflects your actual progression. Adjust to override next workout weight.</p>
+          <p className="text-xs text-gray-600 mt-0.5">Your next workout's working weight based on progression.</p>
         </div>
-        {Object.entries(EXERCISES).map(([key, ex]) => {
-          const displayed = currentWeight(key);
-          const inc = getIncrement(key);
-          return (
-            <div key={key} className="flex items-center gap-3">
-              <span className="flex-1 text-sm">{ex.name}</span>
-              <button
-                onClick={() => updateSettings({ weights: { [key]: Math.max(settings.barWeight ?? 20, displayed - inc) } })}
-                className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
-              >−</button>
-              <span className="w-16 text-center font-mono font-bold text-orange-400">
-                {displayed}kg
-              </span>
-              <button
-                onClick={() => updateSettings({ weights: { [key]: displayed + inc } })}
-                className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
-              >+</button>
-            </div>
-          );
-        })}
+        {Object.entries(EXERCISES).map(([key, ex]) => (
+          <div key={key} className="flex items-center justify-between">
+            <span className="text-sm text-gray-400">{ex.name}</span>
+            <span className="font-mono font-bold text-orange-400">{currentWeight(key)}kg</span>
+          </div>
+        ))}
       </section>
 
       {/* Weight increment */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div>
           <h2 className="font-semibold text-gray-300">Weight Increment</h2>
-          <p className="text-xs text-gray-600 mt-0.5">Future workouts only — does not change history.</p>
+          <p className="text-xs text-gray-600 mt-0.5">Future workouts only. Only one exercise can use the lower increment at a time.</p>
         </div>
         {Object.entries(EXERCISES).map(([key, ex]) => {
           const options = INCREMENT_OPTIONS[key] ?? INCREMENT_OPTIONS.default;
@@ -83,7 +115,7 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
                 {options.map((opt) => (
                   <button
                     key={opt}
-                    onClick={() => updateSettings({ increments: { [key]: opt } })}
+                    onClick={() => handleIncrementChange(key, opt)}
                     className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
                       current === opt
                         ? 'bg-orange-500 text-white'
@@ -215,23 +247,6 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
         </div>
       </section>
 
-      {/* App updates */}
-      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
-        <h2 className="font-semibold text-gray-300">App Updates</h2>
-        {needRefresh ? (
-          <button
-            onClick={() => updateServiceWorker(true)}
-            className="w-full py-3 rounded-xl font-semibold bg-orange-500 hover:bg-orange-400 text-white"
-          >
-            Reload to update
-          </button>
-        ) : (
-          <div className="py-3 rounded-xl text-center text-sm text-gray-500 bg-gray-800">
-            App is up to date
-          </div>
-        )}
-      </section>
-
       {/* Backend sync */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <h2 className="font-semibold text-gray-300">Backend Sync</h2>
@@ -272,10 +287,6 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
           Re-run Setup Wizard
         </button>
       </section>
-
-      <div className="text-center text-xs text-gray-700 pb-4">
-        StrongLifts 5×5 Tracker — offline-first PWA
-      </div>
     </div>
   );
 }
