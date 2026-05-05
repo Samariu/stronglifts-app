@@ -88,6 +88,26 @@ Run it with `npm run backend` from the repo root; it listens on port 3001. Set `
 - `lib/export.js` — CSV export of all sessions (triggered from SettingsView)
 - `views/ProgressView.jsx` — uses Recharts for weight-over-time charts
 
+### Versioning
+
+The version is the single source of truth in `frontend/package.json → version`. At build time, `vite.config.js` injects it as `__APP_VERSION__` (via Vite's `define`), which `SettingsView.jsx` reads and displays.
+
+**To bump the version:** edit `frontend/package.json`, then tag the commit:
+```bash
+git tag v3.2.0
+git push origin v3.2.0
+```
+
+Follow **semantic versioning** (`MAJOR.MINOR.PATCH`):
+
+| Part | When to bump | Examples |
+|---|---|---|
+| PATCH `3.2.x` | Bug fixes, corrections, small tweaks | fix broken warmup count, typo |
+| MINOR `3.x.0` | New user-visible features, enhancements | CSV import, Stats tab, new settings |
+| MAJOR `x.0.0` | Architectural overhaul or breaking data changes | migrating IndexedDB schema, replacing sync |
+
+This app has no published API or npm consumers, so semver here is purely for communicating change scope to the user — be honest about it. A release with only bug fixes is a PATCH, even if there are many of them.
+
 ### Deployment
 
 GitHub Actions builds the frontend and deploys to GitHub Pages. The Netlify config (`netlify.toml`) is an alternative deployment target. There is no CI for the backend.
