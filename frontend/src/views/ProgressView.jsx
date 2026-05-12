@@ -1,10 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { EXERCISES, getWorkoutExercises, getSetsReps, epley1RM, getWarmupSets } from '../lib/program';
 import { DEFAULT_SETTINGS } from '../lib/db';
-import PlateCalculator from '../components/PlateCalculator';
 
 const EXERCISE_KEYS = Object.keys(EXERCISES);
 
@@ -118,14 +117,26 @@ export default function ProgressView({ sessions, settings }) {
       result[key] = { kgMoved: Math.round(kgMoved), distM };
     }
     result._totalJoules = totalJoules;
+    result._totalKg = Object.entries(result).reduce(
+      (sum, [k, v]) => (k.startsWith('_') ? sum : sum + (v?.kgMoved ?? 0)),
+      0,
+    );
     return result;
   }, [sessions, rom, settings.barWeight, settings.availablePlates]);
 
-  // Pick 3 energy comparisons, seeded by today's date so they change daily
   const comparisons = useMemo(() => {
     const seed = parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ''), 10);
-    return seededShuffle(ENERGY_COMPARISONS, seed).slice(0, 3);
+    return seededShuffle(ENERGY_COMPARISONS, seed);
   }, []);
+
+  const [funFactIndex, setFunFactIndex] = useState(0);
+  useEffect(() => {
+    if ((totals._totalJoules ?? 0) <= 0) return undefined;
+    const id = setInterval(() => {
+      setFunFactIndex((i) => (i + 1) % comparisons.length);
+    }, 5000);
+    return () => clearInterval(id);
+  }, [comparisons.length, totals._totalJoules]);
 
   const data         = exerciseData[selectedExercise] ?? [];
   const lastEntry    = data[data.length - 1];
@@ -157,16 +168,22 @@ export default function ProgressView({ sessions, settings }) {
               );
             })}
           </div>
-          <div className="border-t border-gray-800 pt-3 space-y-1">
+          <div className="border-t border-gray-800 pt-3 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-400">Total mass moved</span>
+              <span className="font-mono font-bold text-white">
+                {totals._totalKg.toLocaleString()} kg
+              </span>
+            </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-400">Total energy</span>
               <span className="font-mono font-bold text-orange-400">{formatEnergy(totalJoules)}</span>
             </div>
-            {totalJoules > 0 && comparisons.map((fn, i) => (
-              <div key={i} className="text-xs text-gray-600 text-right">
-                ≈ {fn(totalJoules)}
+            {totalJoules > 0 && (
+              <div key={funFactIndex} className="text-base text-gray-400 text-right pt-1">
+                ≈ {comparisons[funFactIndex](totalJoules)}
               </div>
-            ))}
+            )}
           </div>
         </div>
       )}
@@ -176,7 +193,6 @@ export default function ProgressView({ sessions, settings }) {
         {[
           { id: 'weight', label: 'Weight'   },
           { id: '1rm',    label: 'Est. 1RM' },
-          { id: 'plates', label: 'Plates'   },
         ].map((t) => (
           <button
             key={t.id}
@@ -192,94 +208,86 @@ export default function ProgressView({ sessions, settings }) {
         ))}
       </div>
 
-      {activeTab !== 'plates' && (
-        <>
-          {/* Exercise selector */}
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            {EXERCISE_KEYS.map((key) => (
-              <button
-                key={key}
-                onClick={() => setSelectedExercise(key)}
-                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                  selectedExercise === key
-                    ? 'text-white border-transparent'
-                    : 'border-gray-700 text-gray-400 hover:border-gray-500'
-                }`}
-                style={selectedExercise === key ? { backgroundColor: COLORS[key] } : {}}
-              >
-                {EXERCISES[key].name}
-              </button>
-            ))}
-          </div>
+      {/* Exercise selector */}
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        {EXERCISE_KEYS.map((key) => (
+          <button
+            key={key}
+            onClick={() => setSelectedExercise(key)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+              selectedExercise === key
+                ? 'text-white border-transparent'
+                : 'border-gray-700 text-gray-400 hover:border-gray-500'
+            }`}
+            style={selectedExercise === key ? { backgroundColor: COLORS[key] } : {}}
+          >
+            {EXERCISES[key].name}
+          </button>
+        ))}
+      </div>
 
-          {/* Stats row */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-gray-900 rounded-xl p-3 text-center">
-              <div
-                className="text-2xl font-bold font-mono"
-                style={{ color: COLORS[selectedExercise] }}
-              >
-                {latestWeight}kg
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5">Current</div>
-            </div>
-            <div className="bg-gray-900 rounded-xl p-3 text-center">
-              <div className="text-2xl font-bold font-mono text-purple-400">
-                {latest1RM}kg
-              </div>
-              <div className="text-xs text-gray-500 mt-0.5">Est. 1RM (Epley)</div>
-            </div>
+      {/* Stats row */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-gray-900 rounded-xl p-3 text-center">
+          <div
+            className="text-2xl font-bold font-mono"
+            style={{ color: COLORS[selectedExercise] }}
+          >
+            {latestWeight}kg
           </div>
-
-          {/* Chart */}
-          <div className="bg-gray-900 rounded-2xl p-4">
-            {data.length < 2 ? (
-              <div className="h-44 flex items-center justify-center text-gray-600 text-sm">
-                Complete at least 2 sessions to see the chart
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: '#6b7280', fontSize: 10 }}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: '#111827',
-                      border: '1px solid #374151',
-                      borderRadius: 8,
-                    }}
-                    labelStyle={{ color: '#9ca3af' }}
-                    itemStyle={{ color: COLORS[selectedExercise] }}
-                    formatter={(v) => [`${v}kg`]}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey={dataKey}
-                    stroke={COLORS[selectedExercise]}
-                    strokeWidth={2.5}
-                    dot={{ r: 3, fill: COLORS[selectedExercise] }}
-                    activeDot={{ r: 5 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
+          <div className="text-xs text-gray-500 mt-0.5">Current</div>
+        </div>
+        <div className="bg-gray-900 rounded-xl p-3 text-center">
+          <div className="text-2xl font-bold font-mono text-purple-400">
+            {latest1RM}kg
           </div>
+          <div className="text-xs text-gray-500 mt-0.5">Est. 1RM (Epley)</div>
+        </div>
+      </div>
 
-          <div className="text-center text-xs text-gray-600">
-            {data.length} successful session
-            {data.length !== 1 ? 's' : ''} — {EXERCISES[selectedExercise].name}
+      {/* Chart */}
+      <div className="bg-gray-900 rounded-2xl p-4">
+        {data.length < 2 ? (
+          <div className="h-44 flex items-center justify-center text-gray-600 text-sm">
+            Complete at least 2 sessions to see the chart
           </div>
-        </>
-      )}
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis
+                dataKey="date"
+                tick={{ fill: '#6b7280', fontSize: 10 }}
+                interval="preserveStartEnd"
+              />
+              <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} />
+              <Tooltip
+                contentStyle={{
+                  background: '#111827',
+                  border: '1px solid #374151',
+                  borderRadius: 8,
+                }}
+                labelStyle={{ color: '#9ca3af' }}
+                itemStyle={{ color: COLORS[selectedExercise] }}
+                formatter={(v) => [`${v}kg`]}
+              />
+              <Line
+                type="monotone"
+                dataKey={dataKey}
+                stroke={COLORS[selectedExercise]}
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: COLORS[selectedExercise] }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
 
-      {activeTab === 'plates' && (
-        <PlateCalculator barWeight={settings.barWeight} availablePlates={settings.availablePlates} />
-      )}
+      <div className="text-center text-xs text-gray-600">
+        {data.length} successful session
+        {data.length !== 1 ? 's' : ''} — {EXERCISES[selectedExercise].name}
+      </div>
     </div>
   );
 }

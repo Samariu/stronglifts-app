@@ -26,22 +26,26 @@ export default function HistoryView({ sessions, settings, upsertSession, removeS
 
   const todayStr = now.toISOString().slice(0, 10);
 
-  // Project future workout days: every other day from last session, alternating A/B, 90 days out
+  // Project future workout days on Tue/Thu/Sat, alternating A/B from the last actual session
   const futureSessions = useMemo(() => {
     const map = {};
-    if (sessions.length === 0) return map;
-    const last = sessions[sessions.length - 1]; // sorted by date in useSessions
-    let type = last.workoutType === 'A' ? 'B' : 'A';
-    const d = new Date(last.date);
-    for (let i = 0; i < 45; i++) { // 45 iterations × 2 days = 90 days
-      d.setDate(d.getDate() + 2);
+    let type = 'A';
+    if (sessions.length > 0) {
+      const last = sessions[sessions.length - 1]; // sorted by date in useSessions
+      type = last.workoutType === 'A' ? 'B' : 'A';
+    }
+    const d = new Date(todayStr);
+    for (let i = 0; i < 90; i++) {
+      d.setDate(d.getDate() + 1);
+      const dow = d.getDay();
+      if (dow !== 2 && dow !== 4 && dow !== 6) continue;
       const ds = d.toISOString().slice(0, 10);
-      if (ds <= todayStr) { type = type === 'A' ? 'B' : 'A'; continue; }
+      if (sessionsByDate[ds]) continue;
       map[ds] = type;
       type = type === 'A' ? 'B' : 'A';
     }
     return map;
-  }, [sessions, todayStr]);
+  }, [sessions, sessionsByDate, todayStr]);
 
   const prevMonth = () => {
     if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }
@@ -158,12 +162,14 @@ export default function HistoryView({ sessions, settings, upsertSession, removeS
             const isToday  = dateStr === todayStr;
             const isFuture = dateStr > todayStr;
             const projected = futureSessions[dateStr];
+            const hasLoggedSets = session && Object.values(session.exercises ?? {})
+              .some((ex) => (ex.sets ?? []).length > 0);
 
             let bg = 'bg-gray-800 text-gray-600';
-            if (session?.workoutType === 'A')      bg = 'bg-orange-600 text-white';
-            else if (session?.workoutType === 'B') bg = 'bg-blue-600 text-white';
-            else if (projected === 'A')            bg = 'bg-orange-900/50 text-orange-600';
-            else if (projected === 'B')            bg = 'bg-blue-900/50 text-blue-600';
+            if (hasLoggedSets && session.workoutType === 'A')      bg = 'bg-orange-600 text-white';
+            else if (hasLoggedSets && session.workoutType === 'B') bg = 'bg-blue-600 text-white';
+            else if (projected === 'A')                            bg = 'bg-orange-900/50 text-orange-600';
+            else if (projected === 'B')                            bg = 'bg-blue-900/50 text-blue-600';
 
             return (
               <button

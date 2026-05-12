@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-  EXERCISES, getWorkoutType, getWorkoutExercises, getSetsReps,
+  EXERCISES, getWorkoutExercises, getSetsReps,
   computeNextWeight, countConsecutiveFailures, formatPlates,
 } from '../lib/program';
 import { makeSessionId } from '../lib/db';
@@ -28,21 +28,24 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
     [sessions, todayId],
   );
 
-  const sessionIndex = useMemo(() => {
-    const pastSessions = sessions.filter((s) => s.id !== todayId);
-    return pastSessions.length;
-  }, [sessions, todayId]);
-
-  const getIncrement = (key) => settings.increments?.[key] ?? EXERCISES[key].increment;
-
-  // Effective workout type: explicit override > saved session > computed from index
-  const workoutType = typeOverride ?? existingSession?.workoutType ?? getWorkoutType(sessionIndex);
-  const exercises   = getWorkoutExercises(workoutType);
-
   const pastSessions = useMemo(
     () => sessions.filter((s) => s.id !== todayId),
     [sessions, todayId],
   );
+
+  const sessionIndex = pastSessions.length;
+
+  const getIncrement = (key) => settings.increments?.[key] ?? EXERCISES[key].increment;
+
+  // Effective workout type: explicit override > saved session > flip from last past session
+  const computedWorkoutType = useMemo(() => {
+    if (pastSessions.length === 0) return 'A';
+    const last = pastSessions[pastSessions.length - 1];
+    return last.workoutType === 'A' ? 'B' : 'A';
+  }, [pastSessions]);
+
+  const workoutType = typeOverride ?? existingSession?.workoutType ?? computedWorkoutType;
+  const exercises   = getWorkoutExercises(workoutType);
 
   const workingWeights = useMemo(() => {
     const result = {};
@@ -77,7 +80,8 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
       exercises: results,
       completed: exercises.every((key) => {
         const { sets: total } = getSetsReps(key);
-        return (results[key]?.sets?.length ?? 0) >= total;
+        const ok = (results[key]?.sets ?? []).filter((s) => s.completed).length;
+        return ok >= total;
       }),
     }),
     [todayId, date, sessionIndex, workoutType, exercises],
