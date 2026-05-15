@@ -1,4 +1,5 @@
 import { openDB } from 'idb';
+import { EXERCISES } from './program';
 
 const DB_NAME = 'stronglifts';
 const DB_VERSION = 1;
@@ -64,13 +65,16 @@ export const DEFAULT_SETTINGS = {
   weights: {
     squat: 20,
     benchPress: 20,
-    barbellRow: 20,
+    barbellRow: 30,
     overheadPress: 20,
-    deadlift: 20,
+    deadlift: 30,
   },
   restTimers: {
-    upper: 90,
-    lower: 180,
+    squat: 180,
+    benchPress: 90,
+    barbellRow: 90,
+    overheadPress: 90,
+    deadlift: 180,
   },
   increments: {
     squat: 2.5,
@@ -90,4 +94,26 @@ export const DEFAULT_SETTINGS = {
   csvImportConflict: 'ask',
   setupComplete: false,
   backendUrl: '',
+};
+
+// Upgrade a stored settings object to the current shape.
+// Returns { settings, changed } — `changed` is true if anything was migrated,
+// so the caller can persist the upgraded copy once.
+export const migrateSettings = (stored) => {
+  const settings = { ...DEFAULT_SETTINGS, ...stored };
+  let changed = false;
+
+  // restTimers: legacy { upper, lower } → per-exercise keys
+  const rt = stored.restTimers ?? {};
+  if (!('squat' in rt)) {
+    settings.restTimers = Object.fromEntries(
+      Object.entries(EXERCISES).map(([key, ex]) => [
+        key,
+        rt[ex.isLower ? 'lower' : 'upper'] ?? DEFAULT_SETTINGS.restTimers[key],
+      ]),
+    );
+    changed = true;
+  }
+
+  return { settings, changed };
 };

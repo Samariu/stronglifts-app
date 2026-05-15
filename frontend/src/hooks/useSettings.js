@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getSettings, saveSettings, DEFAULT_SETTINGS } from '../lib/db';
+import { getSettings, saveSettings, DEFAULT_SETTINGS, migrateSettings } from '../lib/db';
 import { queueSync } from '../lib/sync';
 
 export const useSettings = () => {
@@ -8,8 +8,18 @@ export const useSettings = () => {
 
   useEffect(() => {
     getSettings().then((s) => {
-      setSettings(s ?? DEFAULT_SETTINGS);
+      if (!s) {
+        setSettings(DEFAULT_SETTINGS);
+        setLoading(false);
+        return;
+      }
+      const { settings: migrated, changed } = migrateSettings(s);
+      setSettings(migrated);
       setLoading(false);
+      if (changed) {
+        saveSettings(migrated);
+        queueSync('settings', migrated);
+      }
     });
   }, []);
 

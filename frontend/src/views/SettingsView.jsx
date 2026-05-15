@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { EXERCISES, ALL_PLATE_SIZES, computeNextWeight } from '../lib/program';
+import { EXERCISES, ALL_PLATE_SIZES, computeNextWeight, getMinWeight, getRestSeconds } from '../lib/program';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { getSyncQueueLength } from '../lib/sync';
 
@@ -81,7 +81,7 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
             <div key={key} className="flex items-center gap-3">
               <span className="flex-1 text-sm">{ex.name}</span>
               <button
-                onClick={() => updateSettings({ nextWeightOverrides: { [key]: Math.max(settings.barWeight ?? 20, displayed - inc) } })}
+                onClick={() => updateSettings({ nextWeightOverrides: { [key]: Math.max(getMinWeight(key, settings.barWeight ?? 20), displayed - inc) } })}
                 className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
               >−</button>
               <span className="w-16 text-center font-mono font-bold text-orange-400">
@@ -154,26 +154,29 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
 
       {/* Rest timers */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
-        <h2 className="font-semibold text-gray-300">Rest Timers</h2>
-        {[
-          { key: 'upper', label: 'Upper body (Bench, Row, OHP)' },
-          { key: 'lower', label: 'Squat & Deadlift' },
-        ].map(({ key, label }) => (
-          <div key={key} className="flex items-center gap-3">
-            <span className="flex-1 text-sm text-gray-400">{label}</span>
-            <button
-              onClick={() => updateSettings({ restTimers: { [key]: Math.max(30, (settings.restTimers?.[key] ?? 90) - 30) } })}
-              className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
-            >−</button>
-            <span className="w-16 text-center font-mono font-bold">
-              {Math.floor((settings.restTimers?.[key] ?? 90) / 60)}:{String((settings.restTimers?.[key] ?? 90) % 60).padStart(2, '0')}
-            </span>
-            <button
-              onClick={() => updateSettings({ restTimers: { [key]: (settings.restTimers?.[key] ?? 90) + 30 } })}
-              className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
-            >+</button>
-          </div>
-        ))}
+        <div>
+          <h2 className="font-semibold text-gray-300">Rest Timers</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Rest between sets, per exercise.</p>
+        </div>
+        {Object.entries(EXERCISES).map(([key, ex]) => {
+          const secs = getRestSeconds(settings.restTimers, key);
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <span className="flex-1 text-sm text-gray-400">{ex.name}</span>
+              <button
+                onClick={() => updateSettings({ restTimers: { [key]: Math.max(30, secs - 30) } })}
+                className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+              >−</button>
+              <span className="w-16 text-center font-mono font-bold">
+                {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}
+              </span>
+              <button
+                onClick={() => updateSettings({ restTimers: { [key]: secs + 30 } })}
+                className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+              >+</button>
+            </div>
+          );
+        })}
       </section>
 
       {/* Bar weight */}

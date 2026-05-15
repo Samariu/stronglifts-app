@@ -16,6 +16,25 @@ export const WORKOUT_B = ['squat', 'overheadPress', 'deadlift'];
 export const getSetsReps = (exerciseKey) =>
   exerciseKey === 'deadlift' ? { sets: 1, reps: 5 } : { sets: 5, reps: 5 };
 
+// Smallest sensible working weight for an exercise.
+// Deadlift and Barbell Row need a plate on each side to raise the bar to
+// pulling height, so their minimum is bar + 5 kg per side (e.g. 30 kg).
+export const getMinWeight = (exerciseKey, barWeight = 20) =>
+  exerciseKey === 'deadlift' || exerciseKey === 'barbellRow'
+    ? barWeight + 10
+    : barWeight;
+
+// Rest time (seconds) for an exercise, with fallbacks for the legacy
+// upper/lower restTimers shape and the per-exercise program defaults.
+export const getRestSeconds = (restTimers, exerciseKey) => {
+  const ex = EXERCISES[exerciseKey];
+  const perExercise = restTimers?.[exerciseKey];
+  if (perExercise != null) return perExercise;
+  const legacy = restTimers?.[ex.isLower ? 'lower' : 'upper'];
+  if (legacy != null) return legacy;
+  return ex.restSeconds;
+};
+
 export const getWorkoutType      = (sessionIndex) => (sessionIndex % 2 === 0 ? 'A' : 'B');
 export const getWorkoutExercises = (type)         => (type === 'A' ? WORKOUT_A : WORKOUT_B);
 

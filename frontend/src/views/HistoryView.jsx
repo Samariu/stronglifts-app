@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
 import {
-  EXERCISES, getWorkoutExercises, getWorkoutType, getSetsReps,
+  EXERCISES, getWorkoutExercises, getWorkoutType, getSetsReps, getMinWeight,
 } from '../lib/program';
 import { makeSessionId } from '../lib/db';
 import { exportSessionsCSV } from '../lib/export';
@@ -372,7 +372,7 @@ function SessionEditor({ date, session, sessions, settings, onSave, onDelete, on
               <span className="font-medium text-sm">{ex.name}</span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setWeight(key, Math.max(settings.barWeight ?? 20, state.weight - inc))}
+                  onClick={() => setWeight(key, Math.max(getMinWeight(key, settings.barWeight ?? 20), state.weight - inc))}
                   className="w-8 h-8 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
                 >−</button>
                 <span className="w-16 text-center font-mono font-bold text-orange-400 text-sm">

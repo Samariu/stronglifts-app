@@ -15,7 +15,9 @@ const COLORS = {
   deadlift:      '#f87171',
 };
 
-// Energy comparison templates. Each gets totalJoules as input and returns a string.
+// Energy comparison templates. Each gets totalJoules as input and returns a
+// string. A fresh subset (COMPARISONS_PER_DAY) is picked each day.
+const COMPARISONS_PER_DAY = 8;
 const ENERGY_COMPARISONS = [
   (j) => `charged your phone ${(j / 37800).toFixed(1)} times`,
   (j) => `boiled ${(j / 83680).toFixed(1)} cups of water`,
@@ -29,6 +31,20 @@ const ENERGY_COMPARISONS = [
   (j) => `moved a 70 kg person ${(j / (70 * 9.81)).toFixed(1)} metres upward`,
   (j) => `${(j / 4184000).toFixed(4)} kg of TNT equivalent`,
   (j) => `${((j / 8.4e13) * 100).toFixed(8)}% of a nuclear bomb`,
+  (j) => `burned ${Math.round(j / 4184)} food Calories`,
+  (j) => `${(j / 3600000).toFixed(3)} kWh of electricity`,
+  (j) => `ran ${(j / 293000).toFixed(2)} km`,
+  (j) => `climbed ${Math.round(j / (75 * 9.81 * 0.17))} stair steps`,
+  (j) => `microwaved food for ${Math.round(j / 1000)} seconds`,
+  (j) => `${(j / 439000).toFixed(2)} bananas of energy`,
+  (j) => `lifted an elephant (6000 kg) ${(j / (6000 * 9.81)).toFixed(2)} metres`,
+  (j) => `${(j / 1_000_000).toFixed(2)} sticks of dynamite`,
+  (j) => `kept a Wi-Fi router running for ${Math.round(j / 6)} seconds`,
+  (j) => `${Math.round(j / 13000)} AA batteries' worth of energy`,
+  (j) => `${(j / 2_600_000).toFixed(3)} hours of sunlight on a 1 m² panel`,
+  (j) => `accelerated a 1500 kg car to ${Math.sqrt((2 * j) / 1500).toFixed(1)} m/s`,
+  (j) => `toasted ${Math.round(j / 110000)} slices of bread`,
+  (j) => `${Math.round(j / 1.5)} human heartbeats`,
 ];
 
 function seededShuffle(arr, seed) {
@@ -126,7 +142,7 @@ export default function ProgressView({ sessions, settings }) {
 
   const comparisons = useMemo(() => {
     const seed = parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ''), 10);
-    return seededShuffle(ENERGY_COMPARISONS, seed);
+    return seededShuffle(ENERGY_COMPARISONS, seed).slice(0, COMPARISONS_PER_DAY);
   }, []);
 
   const [funFactIndex, setFunFactIndex] = useState(0);
@@ -134,7 +150,7 @@ export default function ProgressView({ sessions, settings }) {
     if ((totals._totalJoules ?? 0) <= 0) return undefined;
     const id = setInterval(() => {
       setFunFactIndex((i) => (i + 1) % comparisons.length);
-    }, 5000);
+    }, 25000);
     return () => clearInterval(id);
   }, [comparisons.length, totals._totalJoules]);
 

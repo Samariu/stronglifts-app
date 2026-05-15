@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   EXERCISES, getWorkoutExercises, getSetsReps,
-  computeNextWeight, countConsecutiveFailures, formatPlates,
+  computeNextWeight, countConsecutiveFailures, formatPlates, getRestSeconds,
 } from '../lib/program';
 import { makeSessionId } from '../lib/db';
 import WarmupCard from '../components/WarmupCard';
@@ -130,11 +130,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
 
       // No timer after the final set of an exercise
       if (!isLastSet) {
-        const ex = EXERCISES[exerciseKey];
-        const restSecs =
-          settings.restTimers?.[ex.isLower ? 'lower' : 'upper'] ??
-          (ex.isLower ? 180 : 90);
-        onStartTimer(restSecs);
+        onStartTimer(getRestSeconds(settings.restTimers, exerciseKey));
       }
     },
     [setResults, workingWeights, persist, settings.restTimers, onStartTimer],
@@ -159,7 +155,6 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
 
   const logExtraSet = useCallback(
     async (exerciseKey) => {
-      const ex = EXERCISES[exerciseKey];
       const current = setResults[exerciseKey]?.sets ?? [];
       const updated = {
         ...setResults,
@@ -170,8 +165,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
       };
       setSetResults(updated);
       await persist(updated);
-      const restSecs = settings.restTimers?.[ex.isLower ? 'lower' : 'upper'] ?? (ex.isLower ? 180 : 90);
-      onStartTimer(restSecs);
+      onStartTimer(getRestSeconds(settings.restTimers, exerciseKey));
     },
     [setResults, workingWeights, persist, settings.restTimers, onStartTimer],
   );
@@ -261,7 +255,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
         const isComplete = done.length >= totalSets;
         const f          = failures[key];
 
-        const restSecs = settings.restTimers?.[ex.isLower ? 'lower' : 'upper'] ?? (ex.isLower ? 180 : 90);
+        const restSecs = getRestSeconds(settings.restTimers, key);
 
         return (
           <div

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DEFAULT_SETTINGS } from '../lib/db';
-import { EXERCISES } from '../lib/program';
+import { EXERCISES, getMinWeight } from '../lib/program';
 
 const STEPS = ['welcome', 'bar', 'weights', 'done'];
 
@@ -89,7 +89,7 @@ export default function SetupWizard({ onComplete }) {
               </div>
               <div className="flex gap-3 items-center">
                 <button
-                  onClick={() => setWeights((w) => ({ ...w, [key]: Math.max(barWeight, w[key] - ex.increment) }))}
+                  onClick={() => setWeights((w) => ({ ...w, [key]: Math.max(getMinWeight(key, barWeight), w[key] - ex.increment) }))}
                   className="w-12 h-12 bg-gray-800 rounded-xl text-xl font-bold text-gray-300 hover:bg-gray-700"
                 >−</button>
                 <input
@@ -97,7 +97,7 @@ export default function SetupWizard({ onComplete }) {
                   value={weights[key]}
                   onChange={(e) => setWeights((w) => ({ ...w, [key]: Number(e.target.value) }))}
                   className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-3 text-white text-center text-lg"
-                  min={barWeight} step={2.5}
+                  min={getMinWeight(key, barWeight)} step={2.5}
                 />
                 <span className="text-gray-400 text-sm w-6">kg</span>
                 <button
