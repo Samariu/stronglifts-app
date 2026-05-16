@@ -12,9 +12,17 @@ const INCREMENT_OPTIONS = {
   default:  [1.25, 2.5],
 };
 
-export default function SettingsView({ settings, sessions, updateSettings, needRefresh, updateServiceWorker }) {
+export default function SettingsView({ settings, sessions, updateSettings, needRefresh, updateServiceWorker, checkForUpdate }) {
   const [backendUrl, setBackendUrl] = useState(settings.backendUrl ?? '');
   const [saved, setSaved] = useState(false);
+  const [updateCheck, setUpdateCheck] = useState('idle'); // idle | checking | done | unavailable
+
+  const handleCheckUpdate = async () => {
+    setUpdateCheck('checking');
+    const ok = await checkForUpdate();
+    // Give the service worker a moment to surface a found update via needRefresh.
+    setTimeout(() => setUpdateCheck(ok ? 'done' : 'unavailable'), 1500);
+  };
 
   const availablePlates = settings.availablePlates ?? DEFAULT_SETTINGS.availablePlates;
   const increments      = settings.increments      ?? DEFAULT_SETTINGS.increments;
@@ -49,10 +57,8 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
       {/* App version + update */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div>
-            <span className="font-semibold text-gray-300">StrongLifts 5×5</span>
-            <span className="ml-2 text-xs text-gray-600 font-mono">v{APP_VERSION}</span>
-          </div>
+          <span className="font-semibold text-gray-300">StrongLifts 5×5</span>
+          <span className="text-xs text-gray-600 font-mono">v{APP_VERSION}</span>
         </div>
         {needRefresh ? (
           <button
@@ -62,8 +68,20 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
             Reload to update
           </button>
         ) : (
-          <div className="py-2.5 rounded-xl text-center text-sm text-gray-500 bg-gray-800">
-            App is up to date
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleCheckUpdate}
+              disabled={updateCheck === 'checking'}
+              className="flex-1 py-2.5 rounded-xl font-semibold bg-gray-800 hover:bg-gray-700 text-white disabled:opacity-60"
+            >
+              Check for updates
+            </button>
+            <span className="text-sm text-gray-500 shrink-0">
+              {updateCheck === 'checking'    ? 'Checking…'
+                : updateCheck === 'done'        ? 'Up to date'
+                : updateCheck === 'unavailable' ? 'Unavailable'
+                : 'Tap to check'}
+            </span>
           </div>
         )}
       </section>

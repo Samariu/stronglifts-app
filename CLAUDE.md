@@ -37,7 +37,7 @@ Both hooks call `queueSync()` after every write, which enqueues changes for the 
 - Session index parity determines A/B alternation
 - Weight progression: +2.5 kg on success; 3 consecutive failures triggers a 10% deload
 - Deadlift is always 1×5; all other lifts are 5×5
-- Warmup sets are plate-stack-optimized, always exactly 5 sets
+- Warmup sets ramp up to the working weight using only 5 kg+ plates (no small-plate reloads), so the count varies (up to 5 sets)
 
 **Sync** (`lib/sync.js`) is optional and offline-first: changes are queued in `localStorage`; `trySync()` flushes the queue to the backend when reachable. The frontend works fully without a backend.
 

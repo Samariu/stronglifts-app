@@ -106,14 +106,17 @@ export const formatPlates = (targetWeight, barWeight = 20, availablePlates = ALL
 };
 
 // Warmup sets following the StrongLifts protocol:
-//   - Squat / Bench / OHP (includeBarSets=true):  2 × empty bar, then 3 evenly-spaced ramp sets
-//   - Deadlift / Barbell Row (includeBarSets=false): 3 evenly-spaced ramp sets only
-// Ramp steps are at 25 %, 50 %, 75 % of the range between bar and working weight,
-// each rounded to the nearest achievable weight given the smallest available plate.
+//   - Squat / Bench / OHP (includeBarSets=true):  2 × empty bar, then evenly-spaced ramp sets
+//   - Deadlift / Barbell Row (includeBarSets=false): evenly-spaced ramp sets only
+// Ramp steps are evenly spaced between bar and working weight, snapped to 5 kg+
+// plates only — it's not worth reloading the bar with tiny plates between warmups,
+// so duplicate steps collapse and a workout may end up with fewer than 5 warmups.
 export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES, includeBarSets = true) => {
   if (workingWeight <= barWeight) return [];
 
-  const smallestPlate = Math.min(...availablePlates);
+  // Warmups round to whole 5 kg+ plates; small plates (2.5/1.25 kg) are skipped.
+  const warmupPlates  = availablePlates.filter((p) => p >= 5);
+  const smallestPlate = Math.min(...(warmupPlates.length ? warmupPlates : availablePlates));
   const step = smallestPlate * 2;
 
   const roundToAchievable = (raw) => {

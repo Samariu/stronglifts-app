@@ -100,7 +100,7 @@ export default function ProgressView({ sessions, settings }) {
     return result;
   }, [sessions]);
 
-  // Totals: kg moved, distance, energy per exercise (working sets + 5 assumed warmup sets)
+  // Totals: kg moved, distance, energy per exercise (working sets + warmup sets)
   const totals = useMemo(() => {
     const barWeight      = settings.barWeight ?? 20;
     const availablePlates = settings.availablePlates ?? [];

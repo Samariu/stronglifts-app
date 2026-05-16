@@ -1,5 +1,5 @@
 import { openDB } from 'idb';
-import { EXERCISES } from './program';
+import { EXERCISES, getMinWeight } from './program';
 
 const DB_NAME = 'stronglifts';
 const DB_VERSION = 1;
@@ -112,6 +112,23 @@ export const migrateSettings = (stored) => {
         rt[ex.isLower ? 'lower' : 'upper'] ?? DEFAULT_SETTINGS.restTimers[key],
       ]),
     );
+    changed = true;
+  }
+
+  // Clamp starting weights below an exercise's physical minimum — Barbell Row
+  // and Deadlift need a plate per side, so at least bar + 10 kg (e.g. 30 kg).
+  const barWeight = settings.barWeight ?? DEFAULT_SETTINGS.barWeight;
+  const weights = { ...settings.weights };
+  let weightsChanged = false;
+  for (const key of Object.keys(EXERCISES)) {
+    const min = getMinWeight(key, barWeight);
+    if (weights[key] != null && weights[key] < min) {
+      weights[key] = min;
+      weightsChanged = true;
+    }
+  }
+  if (weightsChanged) {
+    settings.weights = weights;
     changed = true;
   }
 

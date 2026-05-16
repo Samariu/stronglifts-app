@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useSettings } from './hooks/useSettings';
 import { useSessions } from './hooks/useSessions';
@@ -18,7 +18,25 @@ export default function App() {
   const [timerSeconds, setTimerSeconds] = useState(null);
   const [timerKey, setTimerKey] = useState(0);
 
-  const { needRefresh: [needRefresh, setNeedRefresh], updateServiceWorker } = useRegisterSW();
+  const swRegistrationRef = useRef(null);
+  const { needRefresh: [needRefresh, setNeedRefresh], updateServiceWorker } = useRegisterSW({
+    onRegisteredSW(_swUrl, registration) {
+      swRegistrationRef.current = registration ?? null;
+    },
+  });
+
+  // Ask the service worker to check the server for a newer build.
+  // Resolves false if no service worker is registered (e.g. dev mode).
+  const checkForUpdate = useCallback(async () => {
+    const registration = swRegistrationRef.current;
+    if (!registration) return false;
+    try {
+      await registration.update();
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   const startTimer = useCallback((seconds) => {
     setTimerSeconds(seconds);
@@ -91,6 +109,7 @@ export default function App() {
             updateSettings={updateSettings}
             needRefresh={needRefresh}
             updateServiceWorker={updateServiceWorker}
+            checkForUpdate={checkForUpdate}
           />
         )}
       </div>
