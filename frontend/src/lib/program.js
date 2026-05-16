@@ -105,12 +105,13 @@ export const formatPlates = (targetWeight, barWeight = 20, availablePlates = ALL
   return Object.entries(counts).map(([p, c]) => `${c}×${p}kg`).join(' + ');
 };
 
-// Warmup sets following the StrongLifts protocol:
-//   - Squat / Bench / OHP (includeBarSets=true):  2 × empty bar, then evenly-spaced ramp sets
-//   - Deadlift / Barbell Row (includeBarSets=false): evenly-spaced ramp sets only
-// Ramp steps are evenly spaced between bar and working weight, snapped to 5 kg+
-// plates only — it's not worth reloading the bar with tiny plates between warmups,
-// so duplicate steps collapse and a workout may end up with fewer than 5 warmups.
+// Warmup sets following the StrongLifts protocol — ALWAYS exactly 5 sets × 5 reps:
+//   - Squat / Bench / OHP (includeBarSets=true):  2 × empty bar, then 3 ramp sets
+//   - Deadlift / Barbell Row (includeBarSets=false): 5 ramp sets
+// Ramp steps are evenly spaced between bar and working weight, snapped to whole
+// 5 kg+ plates only (no reloading the bar with tiny 1.25/2.5 kg plates). When two
+// ramp steps snap to the same weight they are kept as separate sets — the set
+// count stays 5, you just don't change the bar between them.
 export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES, includeBarSets = true) => {
   if (workingWeight <= barWeight) return [];
 
@@ -119,9 +120,12 @@ export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = A
   const smallestPlate = Math.min(...(warmupPlates.length ? warmupPlates : availablePlates));
   const step = smallestPlate * 2;
 
-  const roundToAchievable = (raw) => {
+  // Snap a raw weight to a 5 kg+ plate increment, kept between bar and working weight.
+  const snap = (raw) => {
     const diff = Math.max(0, raw - barWeight);
-    return barWeight + Math.round(diff / step) * step;
+    let w = barWeight + Math.round(diff / step) * step;
+    if (w >= workingWeight) w = workingWeight - step; // never warm up at/above the work weight
+    return Math.max(barWeight, w);
   };
 
   const sets = [];
@@ -130,18 +134,12 @@ export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = A
     sets.push({ weight: barWeight, reps: 5 });
   }
 
-  // Ramp steps evenly spaced between bar and working weight.
-  // With bar sets (squat/bench/OHP): 3 steps → total 5 sets.
-  // Without bar sets (deadlift/row): 5 steps → total 5 sets.
+  // Ramp steps evenly spaced between bar and working weight — 3 with bar sets,
+  // 5 without, so the total is always exactly 5 sets.
   const rampCount = includeBarSets ? 3 : 5;
-  const seen = new Set(sets.map((s) => s.weight));
   for (let i = 1; i <= rampCount; i++) {
     const raw = barWeight + (workingWeight - barWeight) * (i / (rampCount + 1));
-    const w   = roundToAchievable(raw);
-    if (w >= workingWeight) continue;
-    if (seen.has(w)) continue;
-    seen.add(w);
-    sets.push({ weight: w, reps: 5 });
+    sets.push({ weight: snap(raw), reps: 5 });
   }
 
   return sets;
