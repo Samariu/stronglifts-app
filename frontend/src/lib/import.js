@@ -73,9 +73,20 @@ export const importSessionsCSV = (text) => {
       const key = NAME_TO_KEY[exerciseName.toLowerCase()];
       if (!key) { errors.push(`Unknown exercise: "${exerciseName}"`); continue; }
 
-      const weight        = parseFloat(row[iWeight]) || 0;
-      const setsCompleted = parseInt(row[iSetsCompleted], 10) || 0;
-      const setsTotal     = parseInt(row[iSetsTotal],     10) || getSetsReps(key).sets;
+      const weight        = parseFloat(row[iWeight]);
+      const setsCompleted = parseInt(row[iSetsCompleted], 10);
+      if (!Number.isFinite(weight) || weight < 0) {
+        errors.push(`${date} ${exerciseName}: invalid weight "${row[iWeight]}"`);
+        continue;
+      }
+      if (!Number.isInteger(setsCompleted) || setsCompleted < 0) {
+        errors.push(`${date} ${exerciseName}: invalid sets_completed "${row[iSetsCompleted]}"`);
+        continue;
+      }
+      const parsedTotal = parseInt(row[iSetsTotal], 10);
+      const setsTotal   = Number.isInteger(parsedTotal) && parsedTotal > 0
+        ? parsedTotal
+        : getSetsReps(key).sets;
 
       const sets = [
         ...Array.from({ length: setsCompleted }, () => ({ completed: true,  ts: importTs })),

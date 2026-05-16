@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { EXERCISES, getMinWeight } from '../lib/program';
 
-const STEPS = ['welcome', 'bar', 'weights', 'done'];
-
 export default function SetupWizard({ onComplete }) {
   const [step, setStep] = useState(0);
   const [barWeight, setBarWeight] = useState(20);

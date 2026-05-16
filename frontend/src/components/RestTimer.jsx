@@ -14,7 +14,7 @@ const beep = () => {
       osc.start(ctx.currentTime + delay);
       osc.stop(ctx.currentTime + delay + 0.12);
     });
-  } catch {}
+  } catch { /* AudioContext unavailable (e.g. autoplay policy) — skip the beep */ }
 };
 
 export default function RestTimer({ seconds, onDone, onDismiss, compact = false }) {
@@ -22,7 +22,7 @@ export default function RestTimer({ seconds, onDone, onDismiss, compact = false 
   const [running,   setRunning]   = useState(true);
 
   // Stores the absolute timestamp when the timer should reach zero
-  const endTimeRef   = useRef(Date.now() + seconds * 1000);
+  const endTimeRef   = useRef(0);
   const intervalRef  = useRef(null);
   const firedRef     = useRef(false); // prevent double-beep
 
@@ -45,13 +45,10 @@ export default function RestTimer({ seconds, onDone, onDismiss, compact = false 
     }
   }, [onDone]);
 
-  // Reset when the `seconds` prop changes (new timer started)
+  // App remounts RestTimer (via a fresh key) for every new timer, so the end
+  // time only needs to be set once, on mount.
   useEffect(() => {
-    clearTick();
-    firedRef.current  = false;
     endTimeRef.current = Date.now() + seconds * 1000;
-    setRemaining(seconds);
-    setRunning(true);
   }, [seconds]);
 
   // Start / stop the interval

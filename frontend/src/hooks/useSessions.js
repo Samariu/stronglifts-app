@@ -13,6 +13,7 @@ export const useSessions = () => {
     setLoading(false);
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data load
   useEffect(() => { reload(); }, [reload]);
 
   const upsertSession = useCallback(async (session) => {

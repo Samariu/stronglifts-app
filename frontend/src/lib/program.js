@@ -74,11 +74,7 @@ export const computeNextWeight = (sessions, exerciseKey, settingWeight, incremen
   const last       = relevant[relevant.length - 1];
   const lastWeight = last.exercises?.[exerciseKey]?.weight ?? settingWeight;
 
-  let failures = 0;
-  for (let i = relevant.length - 1; i >= 0; i--) {
-    if (exerciseSucceeded(relevant[i], exerciseKey)) break;
-    failures++;
-  }
+  const failures = countConsecutiveFailures(sessions, exerciseKey);
 
   if (failures >= 3)                        return deload(lastWeight);
   if (exerciseSucceeded(last, exerciseKey)) return lastWeight + increment;

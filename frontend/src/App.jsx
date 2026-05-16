@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useSettings } from './hooks/useSettings';
 import { useSessions } from './hooks/useSessions';
+import { trySync } from './lib/sync';
 import SetupWizard from './views/SetupWizard';
 import TodayView from './views/TodayView';
 import HistoryView from './views/HistoryView';
@@ -25,6 +26,16 @@ export default function App() {
   }, []);
 
   const dismissTimer = useCallback(() => setTimerSeconds(null), []);
+
+  // Flush the offline sync queue to the backend, if one is configured.
+  useEffect(() => {
+    const url = settings?.backendUrl;
+    if (!url) return undefined;
+    trySync(url);
+    const onOnline = () => trySync(url);
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [settings?.backendUrl]);
 
   if (settingsLoading || sessionsLoading) {
     return (

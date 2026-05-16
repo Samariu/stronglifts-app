@@ -12,11 +12,12 @@ export default function BottomNav({ tab, setTab }) {
         <button
           key={t.id}
           onClick={() => setTab(t.id)}
+          aria-current={tab === t.id ? 'page' : undefined}
           className={`flex-1 flex flex-col items-center justify-center py-3 gap-0.5 text-xs font-medium transition-colors ${
             tab === t.id ? 'text-orange-400' : 'text-gray-500'
           }`}
         >
-          <span className="text-xl leading-none">{t.icon}</span>
+          <span className="text-xl leading-none" aria-hidden="true">{t.icon}</span>
           <span>{t.label}</span>
         </button>
       ))}

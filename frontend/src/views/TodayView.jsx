@@ -64,9 +64,10 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
     return init;
   });
 
-  // Sync setResults when existing session first loads
+  // Re-sync setResults if the day's session id changes (e.g. across midnight).
   useEffect(() => {
     if (existingSession) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional re-sync on id change
       setSetResults(existingSession.exercises ?? {});
     }
   }, [existingSession?.id]); // eslint-disable-line
@@ -313,7 +314,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
                       setExpandedWarmup(null);
                       setWarmupDone((prev) => {
                         const next = new Set([...prev, key]);
-                        try { sessionStorage.setItem(WARMUP_KEY, JSON.stringify([...next])); } catch {}
+                        try { sessionStorage.setItem(WARMUP_KEY, JSON.stringify([...next])); } catch { /* sessionStorage unavailable — warmup state stays in memory only */ }
                         return next;
                       });
                       onStartTimer(secs);

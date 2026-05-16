@@ -264,8 +264,8 @@ export default function ProgressView({ sessions, settings }) {
       {/* Chart */}
       <div className="bg-gray-900 rounded-2xl p-4">
         {data.length < 2 ? (
-          <div className="h-44 flex items-center justify-center text-gray-600 text-sm">
-            Complete at least 2 sessions to see the chart
+          <div className="h-44 flex items-center justify-center text-center text-gray-600 text-sm px-4">
+            Complete at least 2 {EXERCISES[selectedExercise].name} sessions to see the chart
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
