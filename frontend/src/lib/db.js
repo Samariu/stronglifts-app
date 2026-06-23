@@ -60,6 +60,7 @@ export const makeSessionId = (date) => `session-${date}`;
 
 // Default settings
 export const DEFAULT_SETTINGS = {
+  program: '5x5',
   barWeight: 20,
   availablePlates: [25, 20, 15, 10, 5, 2.5, 1.25],
   weights: {
@@ -68,6 +69,8 @@ export const DEFAULT_SETTINGS = {
     barbellRow: 30,
     overheadPress: 20,
     deadlift: 30,
+    inclineBench: 20,
+    closeGripBench: 20,
   },
   restTimers: {
     squat: 180,
@@ -75,6 +78,8 @@ export const DEFAULT_SETTINGS = {
     barbellRow: 90,
     overheadPress: 90,
     deadlift: 180,
+    inclineBench: 90,
+    closeGripBench: 90,
   },
   increments: {
     squat: 2.5,
@@ -82,6 +87,8 @@ export const DEFAULT_SETTINGS = {
     barbellRow: 2.5,
     overheadPress: 2.5,
     deadlift: 5.0,
+    inclineBench: 2.5,
+    closeGripBench: 2.5,
   },
   rom: {
     squat: 0.6,
@@ -89,7 +96,11 @@ export const DEFAULT_SETTINGS = {
     barbellRow: 0.5,
     overheadPress: 0.6,
     deadlift: 0.65,
+    inclineBench: 0.45,
+    closeGripBench: 0.45,
   },
+  // Per-workout-label assistance work the user has enabled, e.g. { A: [{ key, sets, weight }] }
+  accessories: {},
   nextWeightOverrides: {},
   csvImportConflict: 'ask',
   setupComplete: false,
@@ -103,6 +114,10 @@ export const migrateSettings = (stored) => {
   const settings = { ...DEFAULT_SETTINGS, ...stored };
   let changed = false;
 
+  // New top-level fields (program selector, accessories) absent on legacy data.
+  if (!('program' in stored)) changed = true;
+  if (!('accessories' in stored)) changed = true;
+
   // restTimers: legacy { upper, lower } → per-exercise keys
   const rt = stored.restTimers ?? {};
   if (!('squat' in rt)) {
@@ -113,6 +128,25 @@ export const migrateSettings = (stored) => {
       ]),
     );
     changed = true;
+  }
+
+  // Backfill any per-exercise maps that predate newly added exercises
+  // (e.g. the Intermediate bench variations) without disturbing user values.
+  for (const mapKey of ['weights', 'restTimers', 'increments', 'rom']) {
+    const current  = settings[mapKey] ?? {};
+    const defaults = DEFAULT_SETTINGS[mapKey];
+    const filled   = { ...current };
+    let mapChanged = false;
+    for (const key of Object.keys(defaults)) {
+      if (!(key in filled)) {
+        filled[key] = defaults[key];
+        mapChanged = true;
+      }
+    }
+    if (mapChanged) {
+      settings[mapKey] = filled;
+      changed = true;
+    }
   }
 
   // Clamp starting weights below an exercise's physical minimum — Barbell Row

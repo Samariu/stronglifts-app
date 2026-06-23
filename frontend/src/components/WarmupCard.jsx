@@ -1,6 +1,6 @@
 import { getWarmupSets, formatPlates } from '../lib/program';
 
-export default function WarmupCard({ workingWeight, barWeight, availablePlates, includeBarSets = true, restSeconds, onStartWorkingSets }) {
+export default function WarmupCard({ workingWeight, workLabel = '5×5', barWeight, availablePlates, includeBarSets = true, restSeconds, onStartWorkingSets }) {
   const sets = getWarmupSets(workingWeight, barWeight, availablePlates, includeBarSets);
   if (sets.length === 0) return null;
 
@@ -23,7 +23,7 @@ export default function WarmupCard({ workingWeight, barWeight, availablePlates, 
         <div className="flex items-center gap-3 text-sm border-t border-gray-700 pt-2">
           <span className="w-5 text-orange-400 text-xs text-right">▶</span>
           <span className="w-14 font-mono font-bold text-orange-400">{workingWeight}kg</span>
-          <span className="text-xs text-gray-500">5×5</span>
+          <span className="text-xs text-gray-500">{workLabel}</span>
           <span className="text-xs text-gray-600 flex-1 text-right">
             {formatPlates(workingWeight, barWeight, availablePlates)}
           </span>

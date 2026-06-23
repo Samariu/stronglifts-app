@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { EXERCISES, ALL_PLATE_SIZES, computeNextWeight, getMinWeight, getRestSeconds } from '../lib/program';
+import { PROGRAMS, getActiveProgram, getProgramExerciseKeys } from '../lib/programs';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { getSyncQueueLength } from '../lib/sync';
 
@@ -28,12 +29,22 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
   const increments      = settings.increments      ?? DEFAULT_SETTINGS.increments;
   const rom             = settings.rom             ?? DEFAULT_SETTINGS.rom;
 
-  const getIncrement = (key) => increments[key] ?? EXERCISES[key].increment;
+  const program      = getActiveProgram(settings);
+  const exerciseKeys = getProgramExerciseKeys(program);
+
+  const getIncrement = (key) => increments[key] ?? EXERCISES[key]?.increment ?? 2.5;
 
   const currentWeight = (key) => {
     const override = settings.nextWeightOverrides?.[key];
     if (override != null) return override;
-    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key));
+    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key), program);
+  };
+
+  const switchProgram = (id) => {
+    if (id === (settings.program ?? '5x5')) return;
+    const name = PROGRAMS[id]?.name ?? id;
+    if (!confirm(`Switch to ${name}? Your history is kept and working weights carry over by exercise.`)) return;
+    updateSettings({ program: id });
   };
 
   const togglePlate = (plate) => {
@@ -57,7 +68,7 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
       {/* App version + update */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="font-semibold text-gray-300">StrongLifts 5×5</span>
+          <span className="font-semibold text-gray-300">{program.name}</span>
           <span className="text-xs text-gray-600 font-mono">v{APP_VERSION}</span>
         </div>
         {needRefresh ? (
@@ -86,13 +97,44 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
         )}
       </section>
 
+      {/* Program */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-gray-300">Program</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Switching keeps your history; working weights carry over by exercise.</p>
+        </div>
+        <div className="space-y-2">
+          {Object.values(PROGRAMS).map((p) => {
+            const active = p.id === program.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => switchProgram(p.id)}
+                className={`w-full text-left rounded-xl p-3 border-2 transition-colors ${
+                  active
+                    ? 'border-orange-500 bg-orange-500/10'
+                    : 'border-gray-800 bg-gray-800/40 hover:border-gray-700'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`font-semibold text-sm ${active ? 'text-orange-400' : 'text-gray-200'}`}>{p.name}</span>
+                  {active && <span className="text-xs text-orange-400">Active</span>}
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">{p.description}</p>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Current working weights */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div>
           <h2 className="font-semibold text-gray-300">Current Working Weights</h2>
           <p className="text-xs text-gray-600 mt-0.5">Your next workout's working weight based on progression. Adjust to override.</p>
         </div>
-        {Object.entries(EXERCISES).map(([key, ex]) => {
+        {exerciseKeys.map((key) => {
+          const ex = EXERCISES[key];
           const displayed = currentWeight(key);
           const inc = getIncrement(key);
           return (
@@ -120,7 +162,8 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
           <h2 className="font-semibold text-gray-300">Weight Increment</h2>
           <p className="text-xs text-gray-600 mt-0.5">Future workouts only — does not change history.</p>
         </div>
-        {Object.entries(EXERCISES).map(([key, ex]) => {
+        {exerciseKeys.map((key) => {
+          const ex = EXERCISES[key];
           const options = INCREMENT_OPTIONS[key] ?? INCREMENT_OPTIONS.default;
           const current = getIncrement(key);
           return (
@@ -176,7 +219,8 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
           <h2 className="font-semibold text-gray-300">Rest Timers</h2>
           <p className="text-xs text-gray-600 mt-0.5">Rest between sets, per exercise.</p>
         </div>
-        {Object.entries(EXERCISES).map(([key, ex]) => {
+        {exerciseKeys.map((key) => {
+          const ex = EXERCISES[key];
           const secs = getRestSeconds(settings.restTimers, key);
           return (
             <div key={key} className="flex items-center gap-3">
@@ -220,7 +264,8 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
           <h2 className="font-semibold text-gray-300">Range of Motion</h2>
           <p className="text-xs text-gray-600 mt-0.5">Used to estimate distance and energy on the Stats tab.</p>
         </div>
-        {Object.entries(EXERCISES).map(([key, ex]) => {
+        {exerciseKeys.map((key) => {
+          const ex = EXERCISES[key];
           const val = rom[key] ?? DEFAULT_SETTINGS.rom[key] ?? 0.5;
           return (
             <div key={key} className="flex items-center gap-3">

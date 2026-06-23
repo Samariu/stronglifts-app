@@ -50,4 +50,30 @@ describe('migrateSettings', () => {
     expect(settings.increments).toEqual(DEFAULT_SETTINGS.increments);
     expect(settings.rom).toEqual(DEFAULT_SETTINGS.rom);
   });
+
+  it('adds the program/accessories fields to legacy settings', () => {
+    const { settings, changed } = migrateSettings({
+      barWeight: 20,
+      restTimers: DEFAULT_SETTINGS.restTimers,
+      weights: { squat: 20, benchPress: 20, barbellRow: 30, overheadPress: 20, deadlift: 30 },
+    });
+    expect(changed).toBe(true);
+    expect(settings.program).toBe('5x5');
+    expect(settings.accessories).toEqual({});
+  });
+
+  it('backfills per-exercise maps with newly added exercises', () => {
+    const { settings, changed } = migrateSettings({
+      program: '5x5',
+      accessories: {},
+      restTimers: DEFAULT_SETTINGS.restTimers, // missing the new bench-variation keys
+      weights: { squat: 20, benchPress: 20, barbellRow: 30, overheadPress: 20, deadlift: 30 },
+    });
+    expect(changed).toBe(true);
+    expect(settings.weights.inclineBench).toBe(DEFAULT_SETTINGS.weights.inclineBench);
+    expect(settings.weights.closeGripBench).toBe(DEFAULT_SETTINGS.weights.closeGripBench);
+    expect(settings.restTimers.inclineBench).toBe(DEFAULT_SETTINGS.restTimers.inclineBench);
+    // existing values are preserved
+    expect(settings.weights.squat).toBe(20);
+  });
 });

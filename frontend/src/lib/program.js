@@ -1,11 +1,13 @@
 // StrongLifts 5x5 program constants and logic
 
 export const EXERCISES = {
-  squat:         { name: 'Squat',          increment: 2.5, restSeconds: 180, isLower: true  },
-  benchPress:    { name: 'Bench Press',    increment: 2.5, restSeconds: 90,  isLower: false },
-  barbellRow:    { name: 'Barbell Row',    increment: 2.5, restSeconds: 90,  isLower: false },
-  overheadPress: { name: 'Overhead Press', increment: 2.5, restSeconds: 90,  isLower: false },
-  deadlift:      { name: 'Deadlift',       increment: 5,   restSeconds: 180, isLower: true  },
+  squat:          { name: 'Squat',                increment: 2.5, restSeconds: 180, isLower: true  },
+  benchPress:     { name: 'Bench Press',          increment: 2.5, restSeconds: 90,  isLower: false },
+  barbellRow:     { name: 'Barbell Row',          increment: 2.5, restSeconds: 90,  isLower: false },
+  overheadPress:  { name: 'Overhead Press',       increment: 2.5, restSeconds: 90,  isLower: false },
+  deadlift:       { name: 'Deadlift',             increment: 5,   restSeconds: 180, isLower: true  },
+  inclineBench:   { name: 'Incline Bench Press',  increment: 2.5, restSeconds: 90,  isLower: false },
+  closeGripBench: { name: 'Close-Grip Bench',     increment: 2.5, restSeconds: 90,  isLower: false },
 };
 
 export const ALL_PLATE_SIZES = [25, 20, 15, 10, 5, 2.5, 1.25];
@@ -13,8 +15,20 @@ export const ALL_PLATE_SIZES = [25, 20, 15, 10, 5, 2.5, 1.25];
 export const WORKOUT_A = ['squat', 'benchPress', 'barbellRow'];
 export const WORKOUT_B = ['squat', 'overheadPress', 'deadlift'];
 
-export const getSetsReps = (exerciseKey) =>
-  exerciseKey === 'deadlift' ? { sets: 1, reps: 5 } : { sets: 5, reps: 5 };
+// Sets/reps for an exercise. When a `program` is supplied, the scheme is read
+// from the workout that contains the exercise (so e.g. Intermediate Rows are
+// 5×8 and Intermediate Deadlift is 5×5). Without a program it falls back to the
+// classic StrongLifts 5×5 rule (Deadlift 1×5, everything else 5×5), which keeps
+// every existing call site working unchanged.
+export const getSetsReps = (exerciseKey, program) => {
+  if (program) {
+    for (const label of program.cycle) {
+      const found = program.workouts[label]?.exercises.find((e) => e.key === exerciseKey);
+      if (found) return { sets: found.sets, reps: found.reps };
+    }
+  }
+  return exerciseKey === 'deadlift' ? { sets: 1, reps: 5 } : { sets: 5, reps: 5 };
+};
 
 // Smallest sensible working weight for an exercise.
 // Deadlift and Barbell Row need a plate on each side to raise the bar to
@@ -35,38 +49,58 @@ export const getRestSeconds = (restTimers, exerciseKey) => {
   return ex.restSeconds;
 };
 
-export const getWorkoutType      = (sessionIndex) => (sessionIndex % 2 === 0 ? 'A' : 'B');
-export const getWorkoutExercises = (type)         => (type === 'A' ? WORKOUT_A : WORKOUT_B);
+// Workout label for a given session index, rotating through the program's cycle.
+// Defaults to the 5×5 A/B alternation when no program is given.
+export const getWorkoutType = (sessionIndex, program) => {
+  const cycle = program?.cycle ?? ['A', 'B'];
+  return cycle[((sessionIndex % cycle.length) + cycle.length) % cycle.length];
+};
+
+// Exercise keys for a workout label. Defaults to the 5×5 A/B workouts.
+export const getWorkoutExercises = (type, program) => {
+  if (program) return (program.workouts[type]?.exercises ?? []).map((e) => e.key);
+  return type === 'A' ? WORKOUT_A : WORKOUT_B;
+};
 
 export const epley1RM       = (weight, reps) => weight * (1 + reps / 30);
 export const roundToNearest = (value, step)  => Math.round(value / step) * step;
 export const deload         = (weight)       => roundToNearest(weight * 0.9, 2.5);
 
 // Whether a single exercise was fully completed in a session
-export const exerciseSucceeded = (session, exerciseKey) => {
+export const exerciseSucceeded = (session, exerciseKey, program) => {
   const sets = session.exercises?.[exerciseKey]?.sets ?? [];
-  const { sets: total } = getSetsReps(exerciseKey);
+  const { sets: total } = getSetsReps(exerciseKey, program);
   return sets.length >= total && sets.slice(0, total).every((s) => s.completed);
 };
 
-// Consecutive failed workouts for an exercise
-export const countConsecutiveFailures = (sessions, exerciseKey) => {
+// Consecutive failed workouts for an exercise. Relevance is determined by what a
+// session *actually contains* (Object presence) rather than re-deriving from the
+// workout label — this stays correct across program switches and ignores
+// sessions where the exercise wasn't performed.
+export const countConsecutiveFailures = (sessions, exerciseKey, program) => {
   let count = 0;
   const relevant = sessions
-    .filter((s) => getWorkoutExercises(s.workoutType).includes(exerciseKey))
+    .filter((s) => s.exercises && exerciseKey in s.exercises)
     .sort((a, b) => a.date.localeCompare(b.date));
   for (let i = relevant.length - 1; i >= 0; i--) {
-    if (exerciseSucceeded(relevant[i], exerciseKey)) break;
+    if (exerciseSucceeded(relevant[i], exerciseKey, program)) break;
     count++;
   }
   return count;
 };
 
 // Compute the working weight for the next session from history.
-// Pass a custom increment to override the exercise default (e.g., from settings.increments).
-export const computeNextWeight = (sessions, exerciseKey, settingWeight, increment = EXERCISES[exerciseKey].increment) => {
+// Pass a custom increment to override the exercise default (e.g., from settings.increments),
+// and a program so success is judged against the right set/rep scheme.
+export const computeNextWeight = (
+  sessions,
+  exerciseKey,
+  settingWeight,
+  increment = EXERCISES[exerciseKey]?.increment ?? 2.5,
+  program,
+) => {
   const relevant = sessions
-    .filter((s) => getWorkoutExercises(s.workoutType).includes(exerciseKey))
+    .filter((s) => s.exercises && exerciseKey in s.exercises)
     .sort((a, b) => a.date.localeCompare(b.date));
 
   if (relevant.length === 0) return settingWeight;
@@ -74,10 +108,10 @@ export const computeNextWeight = (sessions, exerciseKey, settingWeight, incremen
   const last       = relevant[relevant.length - 1];
   const lastWeight = last.exercises?.[exerciseKey]?.weight ?? settingWeight;
 
-  const failures = countConsecutiveFailures(sessions, exerciseKey);
+  const failures = countConsecutiveFailures(sessions, exerciseKey, program);
 
-  if (failures >= 3)                        return deload(lastWeight);
-  if (exerciseSucceeded(last, exerciseKey)) return lastWeight + increment;
+  if (failures >= 3)                                 return deload(lastWeight);
+  if (exerciseSucceeded(last, exerciseKey, program)) return lastWeight + increment;
   return lastWeight;
 };
 

@@ -1,26 +1,29 @@
-import { EXERCISES, getSetsReps, getWorkoutExercises } from './program';
+import { getSetsReps } from './program';
+import { getActiveProgram, getExerciseMeta } from './programs';
 
-export const exportSessionsCSV = (sessions) => {
-  const header = ['date', 'workout_type', 'exercise', 'weight_kg', 'sets_completed', 'sets_total', 'fully_completed'];
+export const exportSessionsCSV = (sessions, settings) => {
+  const activeProgram = getActiveProgram(settings);
+  const header = ['date', 'workout_type', 'exercise', 'weight_kg', 'sets_completed', 'sets_total', 'fully_completed', 'program'];
   const rows = [header];
 
   const sorted = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
 
   for (const session of sorted) {
-    const exercises = getWorkoutExercises(session.workoutType);
-    for (const key of exercises) {
-      const ex = EXERCISES[key];
+    // Iterate what was actually logged so swaps / accessories / any program export faithfully.
+    for (const key of Object.keys(session.exercises ?? {})) {
+      const meta = getExerciseMeta(key);
       const data = session.exercises?.[key];
-      const { sets: total } = getSetsReps(key);
+      const total = data?.sets?.length || getSetsReps(key, activeProgram).sets;
       const completed = data?.sets?.filter((s) => s.completed).length ?? 0;
       rows.push([
         session.date,
         session.workoutType ?? '',
-        ex.name,
+        meta?.name ?? key,
         data?.weight ?? '',
         completed,
         total,
         session.completed ? 'yes' : 'no',
+        session.program ?? activeProgram.id,
       ]);
     }
   }

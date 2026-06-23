@@ -2,17 +2,20 @@ import { useState, useMemo, useEffect } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { EXERCISES, getWorkoutExercises, getSetsReps, epley1RM, getWarmupSets } from '../lib/program';
+import { EXERCISES, getSetsReps, epley1RM, getWarmupSets } from '../lib/program';
+import { getActiveProgram, getProgramExerciseKeys, isBarbell } from '../lib/programs';
 import { DEFAULT_SETTINGS } from '../lib/db';
 
-const EXERCISE_KEYS = Object.keys(EXERCISES);
+const ALL_EXERCISE_KEYS = Object.keys(EXERCISES);
 
 const COLORS = {
-  squat:         '#f97316',
-  benchPress:    '#60a5fa',
-  barbellRow:    '#a78bfa',
-  overheadPress: '#34d399',
-  deadlift:      '#f87171',
+  squat:          '#f97316',
+  benchPress:     '#60a5fa',
+  barbellRow:     '#a78bfa',
+  overheadPress:  '#34d399',
+  deadlift:       '#f87171',
+  inclineBench:   '#38bdf8',
+  closeGripBench: '#fbbf24',
 };
 
 // Energy comparison templates. Each gets totalJoules as input and returns a
@@ -74,19 +77,33 @@ export default function ProgressView({ sessions, settings }) {
   const [selectedExercise, setSelectedExercise] = useState('squat');
 
   const rom = settings.rom ?? DEFAULT_SETTINGS.rom;
+  const program = getActiveProgram(settings);
+
+  // Barbell exercises worth charting: those in the active program plus any that
+  // appear in history (so a program switch doesn't hide past lifts). Accessories
+  // are excluded — bodyweight reps have no barbell mass to chart.
+  const EXERCISE_KEYS = useMemo(() => {
+    const set = new Set(getProgramExerciseKeys(program).filter(isBarbell));
+    for (const s of sessions) {
+      for (const key of Object.keys(s.exercises ?? {})) {
+        if (isBarbell(key)) set.add(key);
+      }
+    }
+    return ALL_EXERCISE_KEYS.filter((k) => set.has(k));
+  }, [program, sessions]);
 
   // Per-exercise chart data
   const exerciseData = useMemo(() => {
     const result = {};
     for (const key of EXERCISE_KEYS) {
       result[key] = sessions
-        .filter((s) => getWorkoutExercises(s.workoutType).includes(key))
+        .filter((s) => s.exercises && key in s.exercises)
         .sort((a, b) => a.date.localeCompare(b.date))
         .map((s) => {
           const exData = s.exercises?.[key];
           const weight = exData?.weight ?? null;
           const sets   = exData?.sets ?? [];
-          const { reps } = getSetsReps(key);
+          const { reps } = getSetsReps(key, program);
           const successSets = sets.filter((sv) => sv.completed).length;
           if (weight === null || successSets === 0) return null;
           return {
@@ -98,7 +115,7 @@ export default function ProgressView({ sessions, settings }) {
         .filter(Boolean);
     }
     return result;
-  }, [sessions]);
+  }, [sessions, EXERCISE_KEYS, program]);
 
   // Totals: kg moved, distance, energy per exercise (working sets + warmup sets)
   const totals = useMemo(() => {
@@ -114,7 +131,7 @@ export default function ProgressView({ sessions, settings }) {
       for (const s of sessions) {
         const exData = s.exercises?.[key];
         if (!exData) continue;
-        const { reps } = getSetsReps(key);
+        const { reps } = getSetsReps(key, program);
         const completedSets = (exData.sets ?? []).filter((sv) => sv.completed).length;
         const weight = exData.weight ?? 0;
         if (completedSets === 0) continue;
@@ -138,7 +155,7 @@ export default function ProgressView({ sessions, settings }) {
       0,
     );
     return result;
-  }, [sessions, rom, settings.barWeight, settings.availablePlates]);
+  }, [sessions, rom, settings.barWeight, settings.availablePlates, EXERCISE_KEYS, program]);
 
   const comparisons = useMemo(() => {
     const seed = parseInt(new Date().toISOString().slice(0, 10).replace(/-/g, ''), 10);
