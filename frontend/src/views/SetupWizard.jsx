@@ -1,14 +1,19 @@
 import { useState } from 'react';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { EXERCISES, getMinWeight } from '../lib/program';
+import { PROGRAMS, getProgram, getProgramExerciseKeys } from '../lib/programs';
 
 export default function SetupWizard({ onComplete }) {
   const [step, setStep] = useState(0);
+  const [programId, setProgramId] = useState('5x5');
   const [barWeight, setBarWeight] = useState(20);
   const [weights, setWeights] = useState({ ...DEFAULT_SETTINGS.weights });
 
+  const program = getProgram(programId);
+  const exerciseKeys = getProgramExerciseKeys(program);
+
   const handleFinish = () => {
-    onComplete({ barWeight, weights });
+    onComplete({ barWeight, weights, program: programId });
   };
 
   return (
@@ -16,15 +21,41 @@ export default function SetupWizard({ onComplete }) {
       {step === 0 && (
         <div className="max-w-sm w-full space-y-6 text-center">
           <div className="text-6xl">🏋️</div>
-          <h1 className="text-3xl font-bold">StrongLifts 5×5</h1>
+          <h1 className="text-3xl font-bold">StrongLifts</h1>
           <p className="text-gray-400">
-            Progressive overload tracker. Two workouts, three days a week. Add weight every session.
+            Progressive overload tracker. Pick a program to get started.
           </p>
-          <ul className="text-left text-sm text-gray-300 space-y-2 bg-gray-900 rounded-xl p-4">
-            <li><span className="text-orange-400 font-semibold">Workout A</span> — Squat, Bench Press, Barbell Row</li>
-            <li><span className="text-blue-400 font-semibold">Workout B</span> — Squat, Overhead Press, Deadlift</li>
-            <li className="text-gray-500 text-xs pt-1">5 sets × 5 reps (Deadlift: 1×5)</li>
-          </ul>
+          <div className="space-y-2 text-left">
+            {Object.values(PROGRAMS).map((p) => {
+              const active = p.id === programId;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => setProgramId(p.id)}
+                  className={`w-full rounded-xl p-4 border-2 transition-colors ${
+                    active
+                      ? 'border-orange-400 bg-orange-500/10'
+                      : 'border-gray-700 bg-gray-900 hover:border-gray-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`font-semibold ${active ? 'text-orange-400' : 'text-gray-200'}`}>{p.name}</span>
+                    {active && <span className="text-orange-400 text-lg leading-none">✓</span>}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">{p.description}</p>
+                  <div className="text-xs text-gray-400 mt-2 space-y-0.5">
+                    {p.cycle.map((label) => (
+                      <div key={label}>
+                        <span className="text-gray-300 font-medium">{p.workouts[label].name}</span>
+                        {' — '}
+                        {p.workouts[label].exercises.map((e) => EXERCISES[e.key]?.name ?? e.key).join(', ')}
+                      </div>
+                    ))}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
           <button
             onClick={() => setStep(1)}
             className="w-full bg-orange-500 hover:bg-orange-400 text-white font-bold py-4 rounded-2xl text-lg transition-colors"
@@ -79,7 +110,9 @@ export default function SetupWizard({ onComplete }) {
           <p className="text-gray-400 text-center text-sm">
             Beginners: start light — the bar or just above. You'll progress fast.
           </p>
-          {Object.entries(EXERCISES).map(([key, ex]) => (
+          {exerciseKeys.map((key) => {
+            const ex = EXERCISES[key];
+            return (
             <div key={key} className="bg-gray-900 rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="font-semibold">{ex.name}</span>
@@ -104,7 +137,8 @@ export default function SetupWizard({ onComplete }) {
                 >+</button>
               </div>
             </div>
-          ))}
+            );
+          })}
           <button
             onClick={handleFinish}
             className="w-full bg-orange-500 hover:bg-orange-400 text-white font-bold py-4 rounded-2xl text-lg transition-colors mt-2"

@@ -1,9 +1,10 @@
 import { EXERCISES, getSetsReps } from './program';
+import { ACCESSORIES, getProgram, isAccessory } from './programs';
 import { makeSessionId } from './db';
 
-// Build a reverse map: exercise name → key
+// Build a reverse map: exercise/accessory name → key
 const NAME_TO_KEY = Object.fromEntries(
-  Object.entries(EXERCISES).map(([key, ex]) => [ex.name.toLowerCase(), key])
+  [...Object.entries(EXERCISES), ...Object.entries(ACCESSORIES)].map(([key, ex]) => [ex.name.toLowerCase(), key])
 );
 
 function parseCSV(text) {
@@ -45,6 +46,7 @@ export const importSessionsCSV = (text) => {
   const iSetsCompleted = idx('sets_completed');
   const iSetsTotal     = idx('sets_total');
   const iFullyDone     = idx('fully_completed');
+  const iProgram       = idx('program');
 
   if ([iDate, iWorkoutType, iExercise, iWeight, iSetsCompleted, iSetsTotal].some((i) => i === -1)) {
     return { toImport: [], errors: ['CSV missing required columns (date, workout_type, exercise, weight_kg, sets_completed, sets_total)'] };
@@ -57,14 +59,22 @@ export const importSessionsCSV = (text) => {
     if (row.length < 2) continue;
     const date = row[iDate]?.trim();
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { errors.push(`Row ${r + 1}: invalid date "${date}"`); continue; }
-    if (!byDate[date]) byDate[date] = { rows: [], workoutType: row[iWorkoutType]?.trim()?.toUpperCase() ?? 'A', fullyCompleted: row[iFullyDone]?.trim() === 'yes' };
+    if (!byDate[date]) {
+      byDate[date] = {
+        rows: [],
+        workoutType: row[iWorkoutType]?.trim()?.toUpperCase() ?? 'A',
+        fullyCompleted: row[iFullyDone]?.trim() === 'yes',
+        program: (iProgram !== -1 ? row[iProgram]?.trim() : '') || '5x5',
+      };
+    }
     byDate[date].rows.push(row);
   }
 
   const importTs = Date.now();
   const toImport = [];
 
-  for (const [date, { rows: dateRows, workoutType, fullyCompleted }] of Object.entries(byDate)) {
+  for (const [date, { rows: dateRows, workoutType, fullyCompleted, program }] of Object.entries(byDate)) {
+    const programDef = getProgram(program);
     const exercises = {};
     let sessionFullyDone = true;
 
@@ -83,18 +93,20 @@ export const importSessionsCSV = (text) => {
         errors.push(`${date} ${exerciseName}: invalid sets_completed "${row[iSetsCompleted]}"`);
         continue;
       }
+      const accessory   = isAccessory(key);
+      const fallbackTotal = accessory
+        ? (ACCESSORIES[key].defaultSets ?? 3)
+        : getSetsReps(key, programDef).sets;
       const parsedTotal = parseInt(row[iSetsTotal], 10);
-      const setsTotal   = Number.isInteger(parsedTotal) && parsedTotal > 0
-        ? parsedTotal
-        : getSetsReps(key).sets;
+      const setsTotal   = Number.isInteger(parsedTotal) && parsedTotal > 0 ? parsedTotal : fallbackTotal;
 
       const sets = [
         ...Array.from({ length: setsCompleted }, () => ({ completed: true,  ts: importTs })),
         ...Array.from({ length: Math.max(0, setsTotal - setsCompleted) }, () => ({ completed: false, ts: importTs })),
       ];
 
-      exercises[key] = { weight, sets };
-      if (setsCompleted < setsTotal) sessionFullyDone = false;
+      exercises[key] = accessory ? { weight, accessory: true, sets } : { weight, sets };
+      if (!accessory && setsCompleted < setsTotal) sessionFullyDone = false;
     }
 
     if (Object.keys(exercises).length === 0) continue;
@@ -104,6 +116,7 @@ export const importSessionsCSV = (text) => {
       date,
       sessionIndex: 0, // caller overwrites with correct index
       workoutType:  workoutType === 'B' ? 'B' : 'A',
+      program,
       exercises,
       completed:    iFullyDone !== -1 ? fullyCompleted : sessionFullyDone,
       updatedAt:    importTs,

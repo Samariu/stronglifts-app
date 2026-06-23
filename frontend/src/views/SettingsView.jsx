@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { EXERCISES, ALL_PLATE_SIZES, computeNextWeight, getMinWeight, getRestSeconds } from '../lib/program';
+import { PROGRAMS, ACCESSORIES, getActiveProgram, getProgramExerciseKeys } from '../lib/programs';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { getSyncQueueLength } from '../lib/sync';
 
@@ -28,12 +29,37 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
   const increments      = settings.increments      ?? DEFAULT_SETTINGS.increments;
   const rom             = settings.rom             ?? DEFAULT_SETTINGS.rom;
 
-  const getIncrement = (key) => increments[key] ?? EXERCISES[key].increment;
+  const program      = getActiveProgram(settings);
+  const exerciseKeys = getProgramExerciseKeys(program);
+
+  const getIncrement = (key) => increments[key] ?? EXERCISES[key]?.increment ?? 2.5;
 
   const currentWeight = (key) => {
     const override = settings.nextWeightOverrides?.[key];
     if (override != null) return override;
-    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key));
+    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key), program);
+  };
+
+  const switchProgram = (id) => {
+    if (id === (settings.program ?? '5x5')) return;
+    const name = PROGRAMS[id]?.name ?? id;
+    if (!confirm(`Switch to ${name}? Your history is kept and working weights carry over by exercise.`)) return;
+    updateSettings({ program: id });
+  };
+
+  const accessoriesFor = (label) => settings.accessories?.[label] ?? [];
+
+  const toggleAccessory = (label, key) => {
+    const list = accessoriesFor(label);
+    const next = list.some((a) => a.key === key)
+      ? list.filter((a) => a.key !== key)
+      : [...list, { key, sets: ACCESSORIES[key].defaultSets, weight: 0 }];
+    updateSettings({ accessories: { [label]: next } });
+  };
+
+  const updateAccessory = (label, key, patch) => {
+    const next = accessoriesFor(label).map((a) => (a.key === key ? { ...a, ...patch } : a));
+    updateSettings({ accessories: { [label]: next } });
   };
 
   const togglePlate = (plate) => {
@@ -57,7 +83,7 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
       {/* App version + update */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="font-semibold text-gray-300">StrongLifts 5×5</span>
+          <span className="font-semibold text-gray-300">{program.name}</span>
           <span className="text-xs text-gray-600 font-mono">v{APP_VERSION}</span>
         </div>
         {needRefresh ? (
@@ -86,13 +112,44 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
         )}
       </section>
 
+      {/* Program */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-gray-300">Program</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Switching keeps your history; working weights carry over by exercise.</p>
+        </div>
+        <div className="space-y-2">
+          {Object.values(PROGRAMS).map((p) => {
+            const active = p.id === program.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => switchProgram(p.id)}
+                className={`w-full text-left rounded-xl p-3 border-2 transition-colors ${
+                  active
+                    ? 'border-orange-500 bg-orange-500/10'
+                    : 'border-gray-800 bg-gray-800/40 hover:border-gray-700'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`font-semibold text-sm ${active ? 'text-orange-400' : 'text-gray-200'}`}>{p.name}</span>
+                  {active && <span className="text-xs text-orange-400">Active</span>}
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">{p.description}</p>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Current working weights */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div>
           <h2 className="font-semibold text-gray-300">Current Working Weights</h2>
           <p className="text-xs text-gray-600 mt-0.5">Your next workout's working weight based on progression. Adjust to override.</p>
         </div>
-        {Object.entries(EXERCISES).map(([key, ex]) => {
+        {exerciseKeys.map((key) => {
+          const ex = EXERCISES[key];
           const displayed = currentWeight(key);
           const inc = getIncrement(key);
           return (
@@ -120,7 +177,8 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
           <h2 className="font-semibold text-gray-300">Weight Increment</h2>
           <p className="text-xs text-gray-600 mt-0.5">Future workouts only — does not change history.</p>
         </div>
-        {Object.entries(EXERCISES).map(([key, ex]) => {
+        {exerciseKeys.map((key) => {
+          const ex = EXERCISES[key];
           const options = INCREMENT_OPTIONS[key] ?? INCREMENT_OPTIONS.default;
           const current = getIncrement(key);
           return (
@@ -176,7 +234,8 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
           <h2 className="font-semibold text-gray-300">Rest Timers</h2>
           <p className="text-xs text-gray-600 mt-0.5">Rest between sets, per exercise.</p>
         </div>
-        {Object.entries(EXERCISES).map(([key, ex]) => {
+        {exerciseKeys.map((key) => {
+          const ex = EXERCISES[key];
           const secs = getRestSeconds(settings.restTimers, key);
           return (
             <div key={key} className="flex items-center gap-3">
@@ -220,7 +279,8 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
           <h2 className="font-semibold text-gray-300">Range of Motion</h2>
           <p className="text-xs text-gray-600 mt-0.5">Used to estimate distance and energy on the Stats tab.</p>
         </div>
-        {Object.entries(EXERCISES).map(([key, ex]) => {
+        {exerciseKeys.map((key) => {
+          const ex = EXERCISES[key];
           const val = rom[key] ?? DEFAULT_SETTINGS.rom[key] ?? 0.5;
           return (
             <div key={key} className="flex items-center gap-3">
@@ -236,6 +296,68 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
                 onClick={() => updateSettings({ rom: { [key]: Math.min(1.2, Math.round((val + 0.05) * 100) / 100) } })}
                 className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
               >+</button>
+            </div>
+          );
+        })}
+      </section>
+
+      {/* Assistance work */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-4">
+        <div>
+          <h2 className="font-semibold text-gray-300">Assistance Work</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Optional accessories per workout. They don't affect progression or count toward completion.</p>
+        </div>
+        {program.cycle.map((label) => {
+          const list = accessoriesFor(label);
+          const enabled = new Set(list.map((a) => a.key));
+          return (
+            <div key={label} className="space-y-2">
+              <div className="text-sm font-medium text-gray-400">{program.workouts[label].name}</div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(ACCESSORIES).map(([key, acc]) => (
+                  <button
+                    key={key}
+                    onClick={() => toggleAccessory(label, key)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                      enabled.has(key)
+                        ? 'bg-orange-500/20 border-orange-500 text-orange-400'
+                        : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    {acc.name}
+                  </button>
+                ))}
+              </div>
+              {list.map((a) => {
+                const acc = ACCESSORIES[a.key];
+                return (
+                  <div key={a.key} className="flex items-center gap-2 pl-1">
+                    <span className="flex-1 text-sm text-gray-300">{acc.name}</span>
+                    <button
+                      onClick={() => updateAccessory(label, a.key, { sets: Math.max(1, a.sets - 1) })}
+                      className="w-8 h-8 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+                    >−</button>
+                    <span className="w-14 text-center text-xs font-mono text-gray-300">{a.sets}×{acc.unit}</span>
+                    <button
+                      onClick={() => updateAccessory(label, a.key, { sets: a.sets + 1 })}
+                      className="w-8 h-8 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+                    >+</button>
+                    {acc.unit === 'kg' && (
+                      <>
+                        <button
+                          onClick={() => updateAccessory(label, a.key, { weight: Math.max(0, (a.weight ?? 0) - 2.5) })}
+                          className="w-8 h-8 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+                        >−</button>
+                        <span className="w-12 text-center text-xs font-mono text-orange-400">{a.weight ?? 0}kg</span>
+                        <button
+                          onClick={() => updateAccessory(label, a.key, { weight: (a.weight ?? 0) + 2.5 })}
+                          className="w-8 h-8 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
+                        >+</button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           );
         })}

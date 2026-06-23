@@ -2,6 +2,7 @@ import { useState, useMemo, useRef } from 'react';
 import {
   EXERCISES, getWorkoutExercises, getWorkoutType, getSetsReps, getMinWeight,
 } from '../lib/program';
+import { getActiveProgram, getProgram, getProgramExerciseKeys } from '../lib/programs';
 import { makeSessionId } from '../lib/db';
 import { exportSessionsCSV } from '../lib/export';
 import { importSessionsCSV } from '../lib/import';
@@ -25,27 +26,33 @@ export default function HistoryView({ sessions, settings, upsertSession, removeS
   }, [sessions]);
 
   const todayStr = now.toISOString().slice(0, 10);
+  const program = getActiveProgram(settings);
 
-  // Project future workout days on Tue/Thu/Sat, alternating A/B from the last actual session
+  // Project future workout days on the program's schedule, rotating through its
+  // workout cycle starting after the last actual session.
   const futureSessions = useMemo(() => {
     const map = {};
-    let type = 'A';
+    const cycle = program.cycle;
+    const dows = program.schedule?.dows ?? [2, 4, 6];
+    const nextInCycle = (label) => {
+      const i = cycle.indexOf(label);
+      return cycle[(i + 1) % cycle.length] ?? cycle[0];
+    };
+    let type = cycle[0];
     if (sessions.length > 0) {
-      const last = sessions[sessions.length - 1]; // sorted by date in useSessions
-      type = last.workoutType === 'A' ? 'B' : 'A';
+      type = nextInCycle(sessions[sessions.length - 1].workoutType); // sorted by date in useSessions
     }
     const d = new Date(todayStr);
     for (let i = 0; i < 90; i++) {
       d.setDate(d.getDate() + 1);
-      const dow = d.getDay();
-      if (dow !== 2 && dow !== 4 && dow !== 6) continue;
+      if (!dows.includes(d.getDay())) continue;
       const ds = d.toISOString().slice(0, 10);
       if (sessionsByDate[ds]) continue;
       map[ds] = type;
-      type = type === 'A' ? 'B' : 'A';
+      type = nextInCycle(type);
     }
     return map;
-  }, [sessions, sessionsByDate, todayStr]);
+  }, [sessions, sessionsByDate, todayStr, program]);
 
   const prevMonth = () => {
     if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }
@@ -196,7 +203,7 @@ export default function HistoryView({ sessions, settings, upsertSession, removeS
         <div className="flex gap-2">
           {sessions.length > 0 && (
             <button
-              onClick={() => exportSessionsCSV(sessions)}
+              onClick={() => exportSessionsCSV(sessions, settings)}
               className="flex-1 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-white bg-gray-800 hover:bg-gray-700 transition-colors"
             >
               Export CSV
@@ -272,22 +279,26 @@ export default function HistoryView({ sessions, settings, upsertSession, removeS
 }
 
 function SessionEditor({ date, session, sessions, settings, onSave, onDelete, onClose }) {
+  // Edit an existing session under the program it was logged with; new sessions
+  // use the active program.
+  const program = session?.program ? getProgram(session.program) : getActiveProgram(settings);
+
   const defaultType = useMemo(() => {
     if (session) return session.workoutType;
     const pastCount = sessions.filter((s) => s.date < date).length;
-    return getWorkoutType(pastCount);
-  }, [session, sessions, date]);
+    return getWorkoutType(pastCount, program);
+  }, [session, sessions, date, program]);
 
   const [workoutType, setWorkoutType] = useState(defaultType);
-  const exercises = getWorkoutExercises(workoutType);
+  const exercises = getWorkoutExercises(workoutType, program);
 
-  const getIncrement = (key) => settings.increments?.[key] ?? EXERCISES[key].increment;
+  const getIncrement = (key) => settings.increments?.[key] ?? EXERCISES[key]?.increment ?? 2.5;
 
   const makeInitialState = () => {
     const init = {};
-    for (const key of Object.keys(EXERCISES)) {
+    for (const key of getProgramExerciseKeys(program)) {
       const saved = session?.exercises?.[key];
-      const { sets: total } = getSetsReps(key);
+      const { sets: total } = getSetsReps(key, program);
       init[key] = {
         weight: saved?.weight ?? settings.weights[key] ?? 20,
         sets:   Array.from({ length: total }, (_, i) => saved?.sets?.[i]?.completed ?? null),
@@ -311,7 +322,7 @@ function SessionEditor({ date, session, sessions, settings, onSave, onDelete, on
   const handleSave = () => {
     const exercisesPayload = {};
     for (const key of exercises) {
-      const { sets: total } = getSetsReps(key);
+      const { sets: total } = getSetsReps(key, program);
       const state = exState[key] ?? { weight: settings.weights[key] ?? 20, sets: Array(total).fill(null) };
       exercisesPayload[key] = {
         weight: state.weight,
@@ -324,9 +335,10 @@ function SessionEditor({ date, session, sessions, settings, onSave, onDelete, on
       date,
       sessionIndex: pastCount,
       workoutType,
+      program:      session?.program ?? program.id,
       exercises:    exercisesPayload,
       completed:    exercises.every((key) => {
-        const { sets: total } = getSetsReps(key);
+        const { sets: total } = getSetsReps(key, program);
         return exercisesPayload[key].sets.filter((s) => s.completed).length === total;
       }),
     });
@@ -345,13 +357,13 @@ function SessionEditor({ date, session, sessions, settings, onSave, onDelete, on
       </div>
 
       <div className="flex bg-gray-800 rounded-xl p-1 gap-1">
-        {['A', 'B'].map((t) => (
+        {program.cycle.map((t, i) => (
           <button
             key={t}
             onClick={() => setWorkoutType(t)}
             className={`flex-1 py-2 rounded-lg font-bold text-sm transition-colors ${
               workoutType === t
-                ? t === 'A' ? 'bg-orange-500 text-white' : 'bg-blue-500 text-white'
+                ? i % 2 === 0 ? 'bg-orange-500 text-white' : 'bg-blue-500 text-white'
                 : 'text-gray-400 hover:text-white'
             }`}
           >
@@ -362,7 +374,7 @@ function SessionEditor({ date, session, sessions, settings, onSave, onDelete, on
 
       {exercises.map((key) => {
         const ex    = EXERCISES[key];
-        const { sets: total } = getSetsReps(key);
+        const { sets: total } = getSetsReps(key, program);
         const state = exState[key] ?? { weight: settings.weights[key] ?? 20, sets: Array(total).fill(null) };
         const inc   = getIncrement(key);
 

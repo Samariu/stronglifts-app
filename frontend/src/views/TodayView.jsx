@@ -3,8 +3,12 @@ import {
   EXERCISES, getWorkoutExercises, getSetsReps,
   computeNextWeight, countConsecutiveFailures, formatPlates, getRestSeconds,
 } from '../lib/program';
+import { getActiveProgram, ACCESSORIES } from '../lib/programs';
 import { makeSessionId } from '../lib/db';
 import WarmupCard from '../components/WarmupCard';
+
+// Label colors for the workout switcher / next-up, by position in the cycle.
+const LABEL_COLORS = ['bg-orange-500', 'bg-blue-500', 'bg-purple-500', 'bg-emerald-500'];
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -35,24 +39,38 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
 
   const sessionIndex = pastSessions.length;
 
-  const getIncrement = (key) => settings.increments?.[key] ?? EXERCISES[key].increment;
+  const program = getActiveProgram(settings);
 
-  // Effective workout type: explicit override > saved session > flip from last past session
+  const getIncrement = (key) => settings.increments?.[key] ?? EXERCISES[key]?.increment ?? 2.5;
+
+  // Effective workout type: explicit override > saved session > next in the cycle
+  // after the last past session's workout.
   const computedWorkoutType = useMemo(() => {
-    if (pastSessions.length === 0) return 'A';
+    if (pastSessions.length === 0) return program.cycle[0];
     const last = pastSessions[pastSessions.length - 1];
-    return last.workoutType === 'A' ? 'B' : 'A';
-  }, [pastSessions]);
+    const i = program.cycle.indexOf(last.workoutType);
+    return program.cycle[(i + 1) % program.cycle.length] ?? program.cycle[0];
+  }, [pastSessions, program]);
 
   const workoutType = typeOverride ?? existingSession?.workoutType ?? computedWorkoutType;
-  const exercises   = getWorkoutExercises(workoutType);
+  const exercises   = getWorkoutExercises(workoutType, program);
+
+  // Optional assistance work enabled for this workout label.
+  const accessoryList = useMemo(
+    () => settings.accessories?.[workoutType] ?? [],
+    [settings.accessories, workoutType],
+  );
+  const accessoryByKey = useMemo(
+    () => Object.fromEntries(accessoryList.map((a) => [a.key, a])),
+    [accessoryList],
+  );
 
   const workingWeights = useMemo(() => {
     const result = {};
     for (const key of exercises) {
       result[key] = existingSession?.exercises?.[key]?.weight
         ?? settings.nextWeightOverrides?.[key]
-        ?? computeNextWeight(pastSessions, key, settings.weights[key] ?? 20, getIncrement(key));
+        ?? computeNextWeight(pastSessions, key, settings.weights[key] ?? 20, getIncrement(key), program);
     }
     return result;
   }, [exercises, existingSession, pastSessions, settings.weights, settings.increments, settings.nextWeightOverrides]); // eslint-disable-line
@@ -78,14 +96,15 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
       date,
       sessionIndex,
       workoutType,
+      program: program.id,
       exercises: results,
       completed: exercises.every((key) => {
-        const { sets: total } = getSetsReps(key);
+        const { sets: total } = getSetsReps(key, program);
         const ok = (results[key]?.sets ?? []).filter((s) => s.completed).length;
         return ok >= total;
       }),
     }),
-    [todayId, date, sessionIndex, workoutType, exercises],
+    [todayId, date, sessionIndex, workoutType, exercises, program],
   );
 
   const persist = useCallback(
@@ -103,17 +122,18 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
     const hasSets = Object.values(setResults).some((ex) => (ex?.sets?.length ?? 0) > 0);
     if (hasSets && !confirm(`Switch to Workout ${t}? Your current sets will be reset.`)) return;
     setTypeOverride(t);
-    const newExercises = getWorkoutExercises(t);
+    const newExercises = getWorkoutExercises(t, program);
     const init = {};
     for (const key of newExercises) {
-      init[key] = { sets: [], weight: computeNextWeight(pastSessions, key, settings.weights?.[key] ?? 20, settings.increments?.[key] ?? EXERCISES[key].increment) };
+      init[key] = { sets: [], weight: computeNextWeight(pastSessions, key, settings.weights?.[key] ?? 20, getIncrement(key), program) };
     }
     setSetResults(init);
-  }, [workoutType, setResults, pastSessions, settings.weights, settings.increments]);
+  }, [workoutType, setResults, pastSessions, settings.weights, settings.increments, program]); // eslint-disable-line
 
   const logSet = useCallback(
     async (exerciseKey, completed) => {
-      const { sets: total } = getSetsReps(exerciseKey);
+      const acc = accessoryByKey[exerciseKey];
+      const total = acc ? acc.sets : getSetsReps(exerciseKey, program).sets;
       const current = setResults[exerciseKey]?.sets ?? [];
       if (current.length >= total) return;
 
@@ -122,19 +142,20 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
       const updated = {
         ...setResults,
         [exerciseKey]: {
-          weight: workingWeights[exerciseKey],
+          weight: acc ? (acc.weight ?? 0) : workingWeights[exerciseKey],
+          ...(acc ? { accessory: true } : {}),
           sets: [...current, { completed, ts: Date.now() }],
         },
       };
       setSetResults(updated);
-      await persist(updated, current.length === 0 ? exerciseKey : null);
+      await persist(updated, current.length === 0 && !acc ? exerciseKey : null);
 
       // No timer after the final set of an exercise
       if (!isLastSet) {
-        onStartTimer(getRestSeconds(settings.restTimers, exerciseKey));
+        onStartTimer(acc ? 90 : getRestSeconds(settings.restTimers, exerciseKey));
       }
     },
-    [setResults, workingWeights, persist, settings.restTimers, onStartTimer],
+    [setResults, workingWeights, persist, settings.restTimers, onStartTimer, program, accessoryByKey],
   );
 
   const undoLastSet = useCallback(
@@ -173,18 +194,19 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
 
   const failures = useMemo(() => {
     const result = {};
-    for (const key of exercises) result[key] = countConsecutiveFailures(pastSessions, key);
+    for (const key of exercises) result[key] = countConsecutiveFailures(pastSessions, key, program);
     return result;
-  }, [pastSessions, exercises]);
+  }, [pastSessions, exercises, program]);
 
   const allDone = exercises.every((key) => {
-    const { sets: total } = getSetsReps(key);
+    const { sets: total } = getSetsReps(key, program);
     return (setResults[key]?.sets?.length ?? 0) >= total;
   });
 
   // Completion banner — shown instead of exercise cards
   if (allDone && !showSets) {
-    const nextType = workoutType === 'A' ? 'B' : 'A';
+    const ci = program.cycle.indexOf(workoutType);
+    const nextType = program.cycle[(ci + 1) % program.cycle.length] ?? program.cycle[0];
     const nextDate = new Date();
     nextDate.setDate(nextDate.getDate() + 2);
     const nextDay = nextDate.toLocaleDateString('en-US', { weekday: 'long' });
@@ -230,13 +252,13 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
           </button>
         ) : (
           <div className="flex bg-gray-800 rounded-xl p-1 gap-1">
-            {['A', 'B'].map((t) => (
+            {program.cycle.map((t, i) => (
               <button
                 key={t}
                 onClick={() => switchType(t)}
                 className={`px-4 py-1.5 rounded-lg font-bold text-sm transition-colors ${
                   workoutType === t
-                    ? t === 'A' ? 'bg-orange-500 text-white' : 'bg-blue-500 text-white'
+                    ? `${LABEL_COLORS[i % LABEL_COLORS.length]} text-white`
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
@@ -251,7 +273,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
       {exercises.map((key) => {
         const ex     = EXERCISES[key];
         const weight = workingWeights[key];
-        const { sets: totalSets, reps } = getSetsReps(key);
+        const { sets: totalSets, reps } = getSetsReps(key, program);
         const done       = setResults[key]?.sets ?? [];
         const isComplete = done.length >= totalSets;
         const f          = failures[key];
@@ -306,6 +328,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
                 <div className="mt-3">
                   <WarmupCard
                     workingWeight={weight}
+                    workLabel={`${totalSets}×${reps}`}
                     barWeight={settings.barWeight}
                     availablePlates={settings.availablePlates}
                     includeBarSets={key !== 'deadlift' && key !== 'barbellRow'}
@@ -393,6 +416,59 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
           </div>
         );
       })}
+
+      {/* Accessories — optional, never block completion */}
+      {accessoryList.length > 0 && (
+        <div className="pt-1 space-y-3">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-1">Assistance</h2>
+          {accessoryList.map(({ key, sets: total, weight }) => {
+            const acc = ACCESSORIES[key];
+            if (!acc) return null;
+            const done       = setResults[key]?.sets ?? [];
+            const isComplete = done.length >= total;
+            return (
+              <div key={key} className={`bg-gray-900 rounded-2xl p-4 space-y-3 transition-opacity ${isComplete ? 'opacity-60' : ''}`}>
+                <div className="flex items-baseline justify-between">
+                  <h3 className="font-bold">{acc.name}</h3>
+                  <span className="text-sm text-gray-500">
+                    {total}×{acc.unit}{acc.unit === 'kg' && weight ? ` @ ${weight}kg` : ''}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  {Array.from({ length: total }).map((_, i) => {
+                    const set    = done[i];
+                    const isNext = i === done.length && !isComplete;
+                    return (
+                      <button
+                        key={i}
+                        disabled={!isNext}
+                        onClick={() => isNext && logSet(key, true)}
+                        className={`flex-1 h-12 rounded-xl font-bold transition-all ${
+                          set?.completed === true
+                            ? 'bg-green-600 text-white'
+                            : isNext
+                            ? 'bg-orange-500 hover:bg-orange-400 text-white active:scale-95'
+                            : 'bg-gray-800 text-gray-600'
+                        }`}
+                      >
+                        {set?.completed === true ? '✓' : i + 1}
+                      </button>
+                    );
+                  })}
+                </div>
+                {done.length > 0 && (
+                  <button
+                    onClick={() => undoLastSet(key)}
+                    className="w-full h-9 rounded-xl text-sm font-medium bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  >
+                    Undo
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

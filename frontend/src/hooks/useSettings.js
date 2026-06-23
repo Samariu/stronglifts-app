@@ -29,6 +29,7 @@ export const useSettings = () => {
     if (updates.restTimers)          next.restTimers          = { ...settings.restTimers,          ...updates.restTimers };
     if (updates.increments)          next.increments          = { ...settings.increments,          ...updates.increments };
     if (updates.rom)                 next.rom                 = { ...settings.rom,                 ...updates.rom };
+    if (updates.accessories)         next.accessories         = { ...settings.accessories,         ...updates.accessories };
     if (updates.nextWeightOverrides) next.nextWeightOverrides = { ...settings.nextWeightOverrides, ...updates.nextWeightOverrides };
     setSettings(next);
     await saveSettings(next);
