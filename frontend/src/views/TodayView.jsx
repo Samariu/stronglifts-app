@@ -3,7 +3,7 @@ import {
   EXERCISES, getWorkoutExercises, getSetsReps,
   computeNextWeight, countConsecutiveFailures, formatPlates, getRestSeconds,
 } from '../lib/program';
-import { getActiveProgram } from '../lib/programs';
+import { getActiveProgram, ACCESSORIES } from '../lib/programs';
 import { makeSessionId } from '../lib/db';
 import WarmupCard from '../components/WarmupCard';
 
@@ -54,6 +54,16 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
 
   const workoutType = typeOverride ?? existingSession?.workoutType ?? computedWorkoutType;
   const exercises   = getWorkoutExercises(workoutType, program);
+
+  // Optional assistance work enabled for this workout label.
+  const accessoryList = useMemo(
+    () => settings.accessories?.[workoutType] ?? [],
+    [settings.accessories, workoutType],
+  );
+  const accessoryByKey = useMemo(
+    () => Object.fromEntries(accessoryList.map((a) => [a.key, a])),
+    [accessoryList],
+  );
 
   const workingWeights = useMemo(() => {
     const result = {};
@@ -122,7 +132,8 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
 
   const logSet = useCallback(
     async (exerciseKey, completed) => {
-      const { sets: total } = getSetsReps(exerciseKey, program);
+      const acc = accessoryByKey[exerciseKey];
+      const total = acc ? acc.sets : getSetsReps(exerciseKey, program).sets;
       const current = setResults[exerciseKey]?.sets ?? [];
       if (current.length >= total) return;
 
@@ -131,19 +142,20 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
       const updated = {
         ...setResults,
         [exerciseKey]: {
-          weight: workingWeights[exerciseKey],
+          weight: acc ? (acc.weight ?? 0) : workingWeights[exerciseKey],
+          ...(acc ? { accessory: true } : {}),
           sets: [...current, { completed, ts: Date.now() }],
         },
       };
       setSetResults(updated);
-      await persist(updated, current.length === 0 ? exerciseKey : null);
+      await persist(updated, current.length === 0 && !acc ? exerciseKey : null);
 
       // No timer after the final set of an exercise
       if (!isLastSet) {
-        onStartTimer(getRestSeconds(settings.restTimers, exerciseKey));
+        onStartTimer(acc ? 90 : getRestSeconds(settings.restTimers, exerciseKey));
       }
     },
-    [setResults, workingWeights, persist, settings.restTimers, onStartTimer, program],
+    [setResults, workingWeights, persist, settings.restTimers, onStartTimer, program, accessoryByKey],
   );
 
   const undoLastSet = useCallback(
@@ -404,6 +416,59 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
           </div>
         );
       })}
+
+      {/* Accessories — optional, never block completion */}
+      {accessoryList.length > 0 && (
+        <div className="pt-1 space-y-3">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-1">Assistance</h2>
+          {accessoryList.map(({ key, sets: total, weight }) => {
+            const acc = ACCESSORIES[key];
+            if (!acc) return null;
+            const done       = setResults[key]?.sets ?? [];
+            const isComplete = done.length >= total;
+            return (
+              <div key={key} className={`bg-gray-900 rounded-2xl p-4 space-y-3 transition-opacity ${isComplete ? 'opacity-60' : ''}`}>
+                <div className="flex items-baseline justify-between">
+                  <h3 className="font-bold">{acc.name}</h3>
+                  <span className="text-sm text-gray-500">
+                    {total}×{acc.unit}{acc.unit === 'kg' && weight ? ` @ ${weight}kg` : ''}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  {Array.from({ length: total }).map((_, i) => {
+                    const set    = done[i];
+                    const isNext = i === done.length && !isComplete;
+                    return (
+                      <button
+                        key={i}
+                        disabled={!isNext}
+                        onClick={() => isNext && logSet(key, true)}
+                        className={`flex-1 h-12 rounded-xl font-bold transition-all ${
+                          set?.completed === true
+                            ? 'bg-green-600 text-white'
+                            : isNext
+                            ? 'bg-orange-500 hover:bg-orange-400 text-white active:scale-95'
+                            : 'bg-gray-800 text-gray-600'
+                        }`}
+                      >
+                        {set?.completed === true ? '✓' : i + 1}
+                      </button>
+                    );
+                  })}
+                </div>
+                {done.length > 0 && (
+                  <button
+                    onClick={() => undoLastSet(key)}
+                    className="w-full h-9 rounded-xl text-sm font-medium bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  >
+                    Undo
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
