@@ -18,7 +18,8 @@ db.exec(`
     workout_type TEXT,
     exercises TEXT,
     completed INTEGER DEFAULT 0,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    program TEXT
   );
 
   CREATE TABLE IF NOT EXISTS settings (
@@ -27,6 +28,13 @@ db.exec(`
     updated_at INTEGER NOT NULL
   );
 `);
+
+// Non-destructive migration: add the program column to databases created before
+// multi-program support. Safe to run on every boot.
+const sessionColumns = db.prepare('PRAGMA table_info(sessions)').all();
+if (!sessionColumns.some((c) => c.name === 'program')) {
+  db.exec('ALTER TABLE sessions ADD COLUMN program TEXT');
+}
 
 const app = express();
 app.use(cors());
@@ -64,6 +72,7 @@ app.get('/api/workouts', (_req, res) => {
     exercises: JSON.parse(r.exercises || '{}'),
     completed: !!r.completed,
     updatedAt: r.updated_at,
+    program: r.program ?? '5x5',
   })));
 });
 
@@ -71,17 +80,18 @@ app.post('/api/workouts', (req, res) => {
   const s = req.body;
   const now = Date.now();
   db.prepare(`
-    INSERT INTO sessions (id, date, session_index, workout_type, exercises, completed, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sessions (id, date, session_index, workout_type, exercises, completed, updated_at, program)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       exercises = excluded.exercises,
       completed = excluded.completed,
-      updated_at = excluded.updated_at
+      updated_at = excluded.updated_at,
+      program = excluded.program
     WHERE excluded.updated_at >= sessions.updated_at
   `).run(
     s.id, s.date, s.sessionIndex, s.workoutType,
     JSON.stringify(s.exercises || {}), s.completed ? 1 : 0,
-    s.updatedAt ?? now
+    s.updatedAt ?? now, s.program ?? '5x5'
   );
   res.json({ ok: true });
 });
