@@ -13,9 +13,13 @@ npm run preview      # Preview the production build locally
 npm run backend      # Start Express backend (port 3001)
 npm run backend:dev  # Start backend with --watch
 cd frontend && npm run lint  # ESLint (no root-level lint script)
+cd frontend && npm run test  # Vitest (pure-function unit tests in src/lib/__tests__/)
 ```
 
-There are no tests.
+Tests are Vitest unit tests covering the pure logic in `lib/program.js`,
+`lib/programs.js`, `lib/db.js` (migrations), and `lib/import.js`. There is no
+component/UI test coverage. Run `npm run test:watch` from `frontend/` while
+iterating.
 
 ## Architecture
 
@@ -31,19 +35,34 @@ Single-page app with tab-based navigation, no router. `App.jsx` owns the tab sta
 
 Both hooks call `queueSync()` after every write, which enqueues changes for the optional backend.
 
-**Program logic** lives entirely in `lib/program.js`:
-- Workout A: Squat / Bench Press / Barbell Row
-- Workout B: Squat / Overhead Press / Deadlift
-- Session index parity determines A/B alternation
-- Weight progression: +2.5 kg on success; 3 consecutive failures triggers a 10% deload
-- Deadlift is always 1×5; all other lifts are 5×5
-- Warmup is always exactly 5 sets × 5 reps, ramping to the working weight using only 5 kg+ plates (no small-plate reloads); repeated ramp weights are kept as separate sets
+**Program engine** lives in `lib/program.js` (pure functions); the **program
+data** lives in `lib/programs.js` (`PROGRAMS` registry + `ACCESSORIES` catalog).
+Adding a program is mostly a declarative entry in `PROGRAMS`.
+- Active program is `settings.program` (default `'5x5'`). Built in: **StrongLifts
+  5×5** and **StrongLifts 5×5 Intermediate** (Rows 5×8, Deadlift-first 5×5,
+  incline/close-grip bench variations).
+- A program defines a `cycle` of workout labels (e.g. `['A','B']`), each workout's
+  exercises with their `{sets, reps}`, and a `schedule.dows` for the History
+  projection. The session index position in the cycle picks the workout label.
+- Engine functions (`getSetsReps`, `getWorkoutType`, `getWorkoutExercises`,
+  `exerciseSucceeded`, `countConsecutiveFailures`, `computeNextWeight`) accept the
+  active program and fall back to classic 5×5 behavior when none is passed.
+- Weight progression: +increment on success; 3 consecutive failures triggers a 10%
+  deload. Progression keys off what a session **actually contains**
+  (`Object.keys(session.exercises)`), so it stays correct across program switches.
+- **History model**: one active global program with a shared timeline; each session
+  is also stamped with an (invisible) `program` tag for future per-program features.
+- **Accessories** (`ACCESSORIES`): optional assistance work enabled per workout in
+  Settings, stored in `session.exercises` flagged `accessory: true`, and excluded
+  from progression / completion / barbell stats (`isAccessory` / `isBarbell`).
+- Warmup is always exactly 5 sets × 5 reps, ramping to the working weight using only
+  5 kg+ plates (no small-plate reloads); repeated ramp weights are kept as separate sets.
 
 **Sync** (`lib/sync.js`) is optional and offline-first: changes are queued in `localStorage`; `trySync()` flushes the queue to the backend when reachable. The frontend works fully without a backend.
 
 ### Backend (`backend/`)
 
-Express 5 + better-sqlite3. Two tables: `sessions` and `settings`. All upserts use `updated_at`-based conflict resolution (last-write-wins). The backend also serves the built frontend from `frontend/dist/`.
+Express 5 + better-sqlite3. Two tables: `sessions` and `settings`. All upserts use `updated_at`-based conflict resolution (last-write-wins). The `sessions` table has a nullable `program` column (added via a guarded, non-destructive `ALTER TABLE` on boot); the `exercises` JSON blob absorbs accessories and any per-exercise shape transparently. The backend also serves the built frontend from `frontend/dist/`.
 
 Run it with `npm run backend` from the repo root; it listens on port 3001. Set `backendUrl` in app settings to enable sync.
 
@@ -55,10 +74,12 @@ Run it with `npm run backend` from the repo root; it listens on port 3001. Set `
   id: 'session-YYYY-MM-DD',   // makeSessionId(date) — one per calendar day
   date: 'YYYY-MM-DD',
   sessionIndex: number,        // count of all past sessions (today excluded)
-  workoutType: 'A' | 'B',     // derived from sessionIndex parity; can be overridden in UI
+  workoutType: 'A' | 'B',     // workout label within the program's cycle; overridable in UI
+  program: string,             // program id this session was logged under (default '5x5')
   exercises: {
     [exerciseKey]: {
       weight: number,          // kg
+      accessory?: true,        // present for assistance work — excluded from progression/stats
       sets: [{ completed: boolean, ts: number }],
     },
   },
@@ -70,14 +91,22 @@ Run it with `npm run backend` from the repo root; it listens on port 3001. Set `
 **Settings** (stored in IndexedDB `settings`, single key `'config'`). Canonical defaults live in `lib/db.js → DEFAULT_SETTINGS`:
 ```js
 {
+  program: '5x5',              // active program id (key into PROGRAMS in lib/programs.js)
   barWeight: 20,
   availablePlates: number[],   // subset of ALL_PLATE_SIZES from program.js
-  weights: { squat, benchPress, barbellRow, overheadPress, deadlift },  // starting weights
-  restTimers: { upper: 90, lower: 180 },  // seconds; upper = bench/row/OHP, lower = squat/deadlift
+  weights:    { [exerciseKey]: number },  // starting weights (incl. bench variations)
+  restTimers: { [exerciseKey]: number },  // seconds per exercise (legacy { upper, lower } migrated)
+  increments: { [exerciseKey]: number },  // per-exercise progression step
+  rom:        { [exerciseKey]: number },  // range of motion (m), for Stats energy/distance
+  accessories: { [workoutLabel]: [{ key, sets, weight }] },  // enabled assistance work
   setupComplete: boolean,      // gates SetupWizard — false on first launch
   backendUrl: string,          // empty string disables sync
 }
 ```
+
+`migrateSettings` (in `lib/db.js`) idempotently backfills new fields (e.g.
+`program`, `accessories`, newly added exercise keys) on load — no IndexedDB
+version bump is needed since both stores are schemaless.
 
 ### First-run flow
 
