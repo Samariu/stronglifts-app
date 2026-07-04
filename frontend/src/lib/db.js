@@ -1,5 +1,5 @@
 import { openDB } from 'idb';
-import { EXERCISES, getMinWeight } from './program';
+import { EXERCISES, getMinWeight, KG_PER_LB } from './program';
 
 const DB_NAME = 'stronglifts';
 const DB_VERSION = 1;
@@ -61,6 +61,7 @@ export const makeSessionId = (date) => `session-${date}`;
 // Default settings
 export const DEFAULT_SETTINGS = {
   program: '5x5',
+  unit: 'kg',                  // display unit — all stored weights stay in kg
   barWeight: 20,
   availablePlates: [25, 20, 15, 10, 5, 2.5, 1.25],
   weights: {
@@ -116,9 +117,12 @@ export const migrateSettings = (stored) => {
   const settings = { ...DEFAULT_SETTINGS, ...stored };
   let changed = false;
 
-  // New top-level fields (program selector, accessories) absent on legacy data.
+  // New top-level fields (program selector, accessories, units, schedule)
+  // absent on legacy data.
   if (!('program' in stored)) changed = true;
   if (!('accessories' in stored)) changed = true;
+  if (!('unit' in stored)) changed = true;
+  if (!('scheduleDows' in stored)) changed = true;
 
   // restTimers: legacy { upper, lower } → per-exercise keys
   const rt = stored.restTimers ?? {};
@@ -152,12 +156,14 @@ export const migrateSettings = (stored) => {
   }
 
   // Clamp starting weights below an exercise's physical minimum — Barbell Row
-  // and Deadlift need a plate per side, so at least bar + 10 kg (e.g. 30 kg).
+  // and Deadlift need a plate per side, so at least bar + 10 kg (or the lb
+  // equivalent, bar + 2 × 10 lb, for lb-unit users).
   const barWeight = settings.barWeight ?? DEFAULT_SETTINGS.barWeight;
+  const platePair = settings.unit === 'lb' ? 20 * KG_PER_LB : 10;
   const weights = { ...settings.weights };
   let weightsChanged = false;
   for (const key of Object.keys(EXERCISES)) {
-    const min = getMinWeight(key, barWeight);
+    const min = getMinWeight(key, barWeight, platePair);
     if (weights[key] != null && weights[key] < min) {
       weights[key] = min;
       weightsChanged = true;

@@ -3,6 +3,7 @@ import {
   EXERCISES, getWorkoutExercises, getWorkoutType, getSetsReps, getMinWeight,
 } from '../lib/program';
 import { getActiveProgram, getProgram, getProgramExerciseKeys } from '../lib/programs';
+import { getUnitProfile, formatWeight } from '../lib/units';
 import { makeSessionId } from '../lib/db';
 import { exportSessionsCSV } from '../lib/export';
 import { importSessionsCSV } from '../lib/import';
@@ -282,6 +283,8 @@ function SessionEditor({ date, session, sessions, settings, onSave, onDelete, on
   // Edit an existing session under the program it was logged with; new sessions
   // use the active program.
   const program = session?.program ? getProgram(session.program) : getActiveProgram(settings);
+  const unitProfile = getUnitProfile(settings);
+  const unit = unitProfile.unit;
 
   const defaultType = useMemo(() => {
     if (session) return session.workoutType;
@@ -384,11 +387,11 @@ function SessionEditor({ date, session, sessions, settings, onSave, onDelete, on
               <span className="font-medium text-sm">{ex.name}</span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setWeight(key, Math.max(getMinWeight(key, settings.barWeight ?? 20), state.weight - inc))}
+                  onClick={() => setWeight(key, Math.max(getMinWeight(key, settings.barWeight ?? 20, unitProfile.minPlatePair), state.weight - inc))}
                   className="w-8 h-8 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
                 >−</button>
                 <span className="w-16 text-center font-mono font-bold text-orange-400 text-sm">
-                  {state.weight}kg
+                  {formatWeight(state.weight, unit)}
                 </span>
                 <button
                   onClick={() => setWeight(key, state.weight + inc)}

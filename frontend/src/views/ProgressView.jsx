@@ -4,6 +4,7 @@ import {
 } from 'recharts';
 import { EXERCISES, getSetsReps, epley1RM, getWarmupSets, computeStreak } from '../lib/program';
 import { getActiveProgram, getProgramExerciseKeys, isBarbell } from '../lib/programs';
+import { getUnit, toDisplay } from '../lib/units';
 import { DEFAULT_SETTINGS } from '../lib/db';
 
 const ALL_EXERCISE_KEYS = Object.keys(EXERCISES);
@@ -78,6 +79,7 @@ export default function ProgressView({ sessions, settings }) {
 
   const rom = settings.rom ?? DEFAULT_SETTINGS.rom;
   const program = getActiveProgram(settings);
+  const unit = getUnit(settings);
 
   // Barbell exercises worth charting: those in the active program plus any that
   // appear in history (so a program switch doesn't hide past lifts). Accessories
@@ -106,16 +108,18 @@ export default function ProgressView({ sessions, settings }) {
           const { reps } = getSetsReps(key, program);
           const successSets = sets.filter((sv) => sv.completed).length;
           if (weight === null || successSets === 0) return null;
+          // Chart data is converted to the display unit up front so the axis,
+          // tooltip and tiles all agree.
           return {
             date:   s.date.slice(5),
-            weight,
-            est1RM: Math.round(epley1RM(weight, reps)),
+            weight: Math.round(toDisplay(weight, unit) * 10) / 10,
+            est1RM: Math.round(toDisplay(epley1RM(weight, reps), unit)),
           };
         })
         .filter(Boolean);
     }
     return result;
-  }, [sessions, EXERCISE_KEYS, program]);
+  }, [sessions, EXERCISE_KEYS, program, unit]);
 
   // Totals: kg moved, distance, energy per exercise (working sets + warmup sets)
   const totals = useMemo(() => {
@@ -173,7 +177,8 @@ export default function ProgressView({ sessions, settings }) {
 
   const data         = exerciseData[selectedExercise] ?? [];
   const lastEntry    = data[data.length - 1];
-  const latestWeight = lastEntry?.weight  ?? settings.weights?.[selectedExercise] ?? 20;
+  const latestWeight = lastEntry?.weight
+    ?? Math.round(toDisplay(settings.weights?.[selectedExercise] ?? 20, unit) * 10) / 10;
   const latest1RM    = lastEntry?.est1RM  ?? Math.round(epley1RM(latestWeight, 5));
   const bestWeight   = data.length > 0 ? Math.max(...data.map((d) => d.weight)) : null;
   const dataKey      = activeTab === '1rm' ? 'est1RM' : 'weight';
@@ -209,7 +214,7 @@ export default function ProgressView({ sessions, settings }) {
                 <div key={key} className="flex items-center justify-between text-sm">
                   <span className="text-gray-400">{EXERCISES[key].name}</span>
                   <div className="flex gap-3 text-right">
-                    <span className="font-mono text-white">{kgMoved.toLocaleString()} kg</span>
+                    <span className="font-mono text-white">{Math.round(toDisplay(kgMoved, unit)).toLocaleString()} {unit}</span>
                     <span className="font-mono text-gray-500">{formatDistance(distM)}</span>
                   </div>
                 </div>
@@ -220,7 +225,7 @@ export default function ProgressView({ sessions, settings }) {
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-400">Total mass moved</span>
               <span className="font-mono font-bold text-white">
-                {totals._totalKg.toLocaleString()} kg
+                {Math.round(toDisplay(totals._totalKg, unit)).toLocaleString()} {unit}
               </span>
             </div>
             <div className="flex items-center justify-between text-sm">
@@ -301,19 +306,19 @@ export default function ProgressView({ sessions, settings }) {
             className="text-xl font-bold font-mono"
             style={{ color: COLORS[selectedExercise] }}
           >
-            {latestWeight}kg
+            {latestWeight}{unit}
           </div>
           <div className="text-xs text-gray-500 mt-0.5">Current</div>
         </div>
         <div className="bg-gray-900 rounded-xl p-3 text-center">
           <div className="text-xl font-bold font-mono text-yellow-400">
-            {bestWeight !== null ? `${bestWeight}kg` : '—'}
+            {bestWeight !== null ? `${bestWeight}${unit}` : "—"}
           </div>
           <div className="text-xs text-gray-500 mt-0.5">Best 🏆</div>
         </div>
         <div className="bg-gray-900 rounded-xl p-3 text-center">
           <div className="text-xl font-bold font-mono text-purple-400">
-            {latest1RM}kg
+            {latest1RM}{unit}
           </div>
           <div className="text-xs text-gray-500 mt-0.5">Est. 1RM</div>
         </div>
@@ -343,7 +348,7 @@ export default function ProgressView({ sessions, settings }) {
                 }}
                 labelStyle={{ color: '#9ca3af' }}
                 itemStyle={{ color: COLORS[selectedExercise] }}
-                formatter={(v) => [`${v}kg`]}
+                formatter={(v) => [`${v}${unit}`]}
               />
               <Line
                 type="monotone"

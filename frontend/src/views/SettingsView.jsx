@@ -1,18 +1,13 @@
 import { useState, useRef } from 'react';
-import { EXERCISES, ALL_PLATE_SIZES, computeNextWeight, getMinWeight, getRestSeconds } from '../lib/program';
+import { EXERCISES, computeNextWeight, getMinWeight, getRestSeconds } from '../lib/program';
 import { PROGRAMS, ACCESSORIES, getActiveProgram, getProgramExerciseKeys } from '../lib/programs';
+import { getUnitProfile, formatWeight, formatNum, toDisplay, unitSwitchDefaults } from '../lib/units';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { getSyncQueueLength } from '../lib/sync';
 import { exportBackupFile, parseBackup } from '../lib/backup';
 
 /* eslint-disable no-undef */
 const APP_VERSION = __APP_VERSION__;
-
-// [lower, higher] options per exercise
-const INCREMENT_OPTIONS = {
-  deadlift: [2.5, 5.0],
-  default:  [1.25, 2.5],
-};
 
 export default function SettingsView({ settings, sessions, updateSettings, upsertSession, needRefresh, updateServiceWorker, checkForUpdate }) {
   const [backendUrl, setBackendUrl] = useState(settings.backendUrl ?? '');
@@ -55,13 +50,24 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
 
   const program      = getActiveProgram(settings);
   const exerciseKeys = getProgramExerciseKeys(program);
+  const unitProfile  = getUnitProfile(settings);
+  const unit         = unitProfile.unit;
 
   const getIncrement = (key) => increments[key] ?? EXERCISES[key]?.increment ?? 2.5;
 
   const currentWeight = (key) => {
     const override = settings.nextWeightOverrides?.[key];
     if (override != null) return override;
-    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key), program);
+    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key), program, unitProfile.roundStep);
+  };
+
+  const switchUnit = (nextUnit) => {
+    if (nextUnit === unit) return;
+    if (!confirm(
+      `Switch to ${nextUnit}? Plates, bar weight and increments reset to standard ${nextUnit} values. ` +
+      'Your history and working weights are kept and simply shown converted.'
+    )) return;
+    updateSettings(unitSwitchDefaults(nextUnit));
   };
 
   const switchProgram = (id) => {
@@ -176,6 +182,27 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
         </div>
       </section>
 
+      {/* Units */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-gray-300">Units</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Switching converts the display; your logged history stays intact.</p>
+        </div>
+        <div className="flex bg-gray-800 rounded-lg p-0.5 gap-0.5">
+          {['kg', 'lb'].map((u) => (
+            <button
+              key={u}
+              onClick={() => switchUnit(u)}
+              className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${
+                unit === u ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {u}
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* Schedule */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div>
@@ -224,11 +251,11 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
             <div key={key} className="flex items-center gap-3">
               <span className="flex-1 text-sm">{ex.name}</span>
               <button
-                onClick={() => updateSettings({ nextWeightOverrides: { [key]: Math.max(getMinWeight(key, settings.barWeight ?? 20), displayed - inc) } })}
+                onClick={() => updateSettings({ nextWeightOverrides: { [key]: Math.max(getMinWeight(key, settings.barWeight ?? 20, unitProfile.minPlatePair), displayed - inc) } })}
                 className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
               >−</button>
               <span className="w-16 text-center font-mono font-bold text-orange-400">
-                {displayed}kg
+                {formatWeight(displayed, unit)}
               </span>
               <button
                 onClick={() => updateSettings({ nextWeightOverrides: { [key]: displayed + inc } })}
@@ -247,7 +274,7 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
         </div>
         {exerciseKeys.map((key) => {
           const ex = EXERCISES[key];
-          const options = INCREMENT_OPTIONS[key] ?? INCREMENT_OPTIONS.default;
+          const options = unitProfile.incrementOptions[key === 'deadlift' ? 'deadlift' : 'default'];
           const current = getIncrement(key);
           return (
             <div key={key} className="flex items-center gap-3">
@@ -263,7 +290,7 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
                         : 'text-gray-400 hover:text-white'
                     }`}
                   >
-                    +{opt}kg
+                    +{formatNum(toDisplay(opt, unit))}{unit}
                   </button>
                 ))}
               </div>
@@ -277,7 +304,7 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
         <h2 className="font-semibold text-gray-300">Available Plates</h2>
         <p className="text-xs text-gray-500">Toggle the plates your gym has. Used for warmup and plate math.</p>
         <div className="flex flex-wrap gap-2">
-          {ALL_PLATE_SIZES.map((plate) => {
+          {unitProfile.plates.map((plate) => {
             const active = availablePlates.includes(plate);
             return (
               <button
@@ -289,7 +316,7 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
                     : 'bg-gray-800 border-gray-700 text-gray-600'
                 }`}
               >
-                {plate}kg
+                {formatNum(toDisplay(plate, unit))}{unit}
               </button>
             );
           })}
@@ -330,12 +357,12 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
         <div className="flex items-center gap-3">
           <span className="flex-1 text-sm text-gray-400">Barbell weight</span>
           <button
-            onClick={() => updateSettings({ barWeight: Math.max(10, settings.barWeight - 2.5) })}
+            onClick={() => updateSettings({ barWeight: Math.max(unitProfile.barStep, settings.barWeight - unitProfile.barStep) })}
             className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
           >−</button>
-          <span className="w-16 text-center font-mono font-bold">{settings.barWeight}kg</span>
+          <span className="w-16 text-center font-mono font-bold">{formatWeight(settings.barWeight, unit)}</span>
           <button
-            onClick={() => updateSettings({ barWeight: settings.barWeight + 2.5 })}
+            onClick={() => updateSettings({ barWeight: settings.barWeight + unitProfile.barStep })}
             className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
           >+</button>
         </div>
@@ -413,12 +440,12 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
                     {acc.unit === 'kg' && (
                       <>
                         <button
-                          onClick={() => updateAccessory(label, a.key, { weight: Math.max(0, (a.weight ?? 0) - 2.5) })}
+                          onClick={() => updateAccessory(label, a.key, { weight: Math.max(0, (a.weight ?? 0) - unitProfile.roundStep) })}
                           className="w-8 h-8 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
                         >−</button>
-                        <span className="w-12 text-center text-xs font-mono text-orange-400">{a.weight ?? 0}kg</span>
+                        <span className="w-12 text-center text-xs font-mono text-orange-400">{formatWeight(a.weight ?? 0, unit)}</span>
                         <button
-                          onClick={() => updateAccessory(label, a.key, { weight: (a.weight ?? 0) + 2.5 })}
+                          onClick={() => updateAccessory(label, a.key, { weight: (a.weight ?? 0) + unitProfile.roundStep })}
                           className="w-8 h-8 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
                         >+</button>
                       </>

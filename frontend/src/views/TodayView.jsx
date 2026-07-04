@@ -5,6 +5,7 @@ import {
   deload, bestLoggedWeight,
 } from '../lib/program';
 import { getActiveProgram, ACCESSORIES } from '../lib/programs';
+import { getUnitProfile, formatWeight } from '../lib/units';
 import { makeSessionId } from '../lib/db';
 import WarmupCard from '../components/WarmupCard';
 
@@ -41,8 +42,19 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
   const sessionIndex = pastSessions.length;
 
   const program = getActiveProgram(settings);
+  const unitProfile = getUnitProfile(settings);
+  const { unit, roundStep } = unitProfile;
 
-  const getIncrement = (key) => settings.increments?.[key] ?? EXERCISES[key]?.increment ?? 2.5;
+  const nextWeightFor = useCallback(
+    (key) => {
+      const increment = settings.increments?.[key] ?? EXERCISES[key]?.increment ?? 2.5;
+      return computeNextWeight(
+        pastSessions, key, settings.weights?.[key] ?? 20, increment,
+        getActiveProgram(settings), getUnitProfile(settings).roundStep,
+      );
+    },
+    [pastSessions, settings],
+  );
 
   // Effective workout type: explicit override > saved session > next in the cycle
   // after the last past session's workout.
@@ -71,10 +83,10 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
     for (const key of exercises) {
       result[key] = existingSession?.exercises?.[key]?.weight
         ?? settings.nextWeightOverrides?.[key]
-        ?? computeNextWeight(pastSessions, key, settings.weights[key] ?? 20, getIncrement(key), program);
+        ?? nextWeightFor(key);
     }
     return result;
-  }, [exercises, existingSession, pastSessions, settings.weights, settings.increments, settings.nextWeightOverrides]); // eslint-disable-line
+  }, [exercises, existingSession, settings.nextWeightOverrides, nextWeightFor]);
 
   const [setResults, setSetResults] = useState(() => {
     if (existingSession) return existingSession.exercises ?? {};
@@ -126,10 +138,10 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
     const newExercises = getWorkoutExercises(t, program);
     const init = {};
     for (const key of newExercises) {
-      init[key] = { sets: [], weight: computeNextWeight(pastSessions, key, settings.weights?.[key] ?? 20, getIncrement(key), program) };
+      init[key] = { sets: [], weight: nextWeightFor(key) };
     }
     setSetResults(init);
-  }, [workoutType, setResults, pastSessions, settings.weights, settings.increments, program]); // eslint-disable-line
+  }, [workoutType, setResults, program, nextWeightFor]);
 
   const logSet = useCallback(
     async (exerciseKey, completed) => {
@@ -307,7 +319,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
                   <h2 className="text-lg font-bold">{ex.name}</h2>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                     <span className="text-2xl font-mono font-bold text-orange-400">
-                      {weight}kg
+                      {formatWeight(weight, unit)}
                     </span>
                     <span className="text-gray-500 text-sm">
                       {totalSets}×{reps}
@@ -320,12 +332,12 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
                     {f > 0 && (
                       <span className="text-xs bg-red-900/50 text-red-400 px-2 py-0.5 rounded-full">
                         {f} fail{f > 1 ? 's' : ''}
-                        {f >= 3 ? ' → deloaded' : f === 2 ? ` · next fail deloads to ${deload(weight)}kg` : ''}
+                        {f >= 3 ? ' → deloaded' : f === 2 ? ` · next fail deloads to ${formatWeight(deload(weight, roundStep), unit)}` : ''}
                       </span>
                     )}
                   </div>
                   <div className="text-xs text-gray-600 mt-1">
-                    {formatPlates(weight, settings.barWeight, settings.availablePlates)}
+                    {formatPlates(weight, settings.barWeight, settings.availablePlates, unit)}
                   </div>
                 </div>
                 <button
@@ -351,6 +363,8 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
                     barWeight={settings.barWeight}
                     availablePlates={settings.availablePlates}
                     includeBarSets={key !== 'deadlift' && key !== 'barbellRow'}
+                    unit={unit}
+                    minWarmupPlate={unitProfile.minWarmupPlate}
                     restSeconds={restSecs}
                     onStartWorkingSets={(secs) => {
                       setExpandedWarmup(null);
@@ -450,7 +464,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
                 <div className="flex items-baseline justify-between">
                   <h3 className="font-bold">{acc.name}</h3>
                   <span className="text-sm text-gray-500">
-                    {total}×{acc.unit}{acc.unit === 'kg' && weight ? ` @ ${weight}kg` : ''}
+                    {total}×{acc.unit}{acc.unit === 'kg' && weight ? ` @ ${formatWeight(weight, unit)}` : ''}
                   </span>
                 </div>
                 <div className="flex gap-2">

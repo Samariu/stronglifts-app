@@ -2,18 +2,45 @@ import { useState } from 'react';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { EXERCISES, getMinWeight } from '../lib/program';
 import { PROGRAMS, getProgram, getProgramExerciseKeys } from '../lib/programs';
+import {
+  UNIT_PROFILES, formatWeight, formatNum, toDisplay, fromDisplay, unitSwitchDefaults,
+} from '../lib/units';
+
+// Sensible starting weights for a unit system: the empty bar, or bar + one
+// plate per side where the lift needs it (Row/Deadlift).
+const defaultWeightsFor = (unit) => {
+  const p = UNIT_PROFILES[unit];
+  return Object.fromEntries(
+    Object.keys(DEFAULT_SETTINGS.weights).map((key) => [
+      key,
+      getMinWeight(key, p.defaultBar, p.minPlatePair),
+    ]),
+  );
+};
 
 export default function SetupWizard({ onComplete }) {
   const [step, setStep] = useState(0);
   const [programId, setProgramId] = useState('5x5');
+  const [unit, setUnit] = useState('kg');
   const [barWeight, setBarWeight] = useState(20);
   const [weights, setWeights] = useState({ ...DEFAULT_SETTINGS.weights });
 
   const program = getProgram(programId);
   const exerciseKeys = getProgramExerciseKeys(program);
+  const profile = UNIT_PROFILES[unit];
+
+  const incFor = (key) =>
+    profile.incrementOptions[key === 'deadlift' ? 'deadlift' : 'default'][1];
+
+  const switchUnit = (u) => {
+    if (u === unit) return;
+    setUnit(u);
+    setBarWeight(UNIT_PROFILES[u].defaultBar);
+    setWeights(defaultWeightsFor(u));
+  };
 
   const handleFinish = () => {
-    onComplete({ barWeight, weights, program: programId });
+    onComplete({ ...unitSwitchDefaults(unit), barWeight, weights, program: programId });
   };
 
   return (
@@ -67,10 +94,25 @@ export default function SetupWizard({ onComplete }) {
 
       {step === 1 && (
         <div className="max-w-sm w-full space-y-6">
-          <h2 className="text-2xl font-bold text-center">Bar Weight</h2>
-          <p className="text-gray-400 text-center text-sm">Standard Olympic barbell is 20kg. Change if yours differs.</p>
+          <h2 className="text-2xl font-bold text-center">Units &amp; Bar</h2>
+          <div className="flex bg-gray-900 rounded-xl p-1 gap-1">
+            {['kg', 'lb'].map((u) => (
+              <button
+                key={u}
+                onClick={() => switchUnit(u)}
+                className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition-colors ${
+                  unit === u ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+          <p className="text-gray-400 text-center text-sm">
+            Standard Olympic barbell is {unit === 'lb' ? '45lb' : '20kg'}. Change if yours differs.
+          </p>
           <div className="flex gap-4 justify-center">
-            {[15, 20].map((w) => (
+            {profile.barOptions.map((w) => (
               <button
                 key={w}
                 onClick={() => setBarWeight(w)}
@@ -80,7 +122,7 @@ export default function SetupWizard({ onComplete }) {
                     : 'border-gray-700 text-gray-400'
                 }`}
               >
-                {w}kg
+                {formatWeight(w, unit)}
               </button>
             ))}
           </div>
@@ -88,12 +130,12 @@ export default function SetupWizard({ onComplete }) {
             <span className="text-gray-400 text-sm">Custom:</span>
             <input
               type="number"
-              value={barWeight}
-              onChange={(e) => setBarWeight(Number(e.target.value))}
+              value={formatNum(toDisplay(barWeight, unit))}
+              onChange={(e) => setBarWeight(fromDisplay(Number(e.target.value), unit))}
               className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white text-center text-lg"
-              min={1} step={0.5}
+              min={1} step={unit === 'lb' ? 1 : 0.5}
             />
-            <span className="text-gray-400 text-sm">kg</span>
+            <span className="text-gray-400 text-sm">{unit}</span>
           </div>
           <button
             onClick={() => setStep(2)}
@@ -112,27 +154,29 @@ export default function SetupWizard({ onComplete }) {
           </p>
           {exerciseKeys.map((key) => {
             const ex = EXERCISES[key];
+            const inc = incFor(key);
+            const min = getMinWeight(key, barWeight, profile.minPlatePair);
             return (
             <div key={key} className="bg-gray-900 rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="font-semibold">{ex.name}</span>
-                <span className="text-xs text-gray-500">+{ex.increment}kg/session</span>
+                <span className="text-xs text-gray-500">+{formatNum(toDisplay(inc, unit))}{unit}/session</span>
               </div>
               <div className="flex gap-3 items-center">
                 <button
-                  onClick={() => setWeights((w) => ({ ...w, [key]: Math.max(getMinWeight(key, barWeight), w[key] - ex.increment) }))}
+                  onClick={() => setWeights((w) => ({ ...w, [key]: Math.max(min, w[key] - inc) }))}
                   className="w-12 h-12 bg-gray-800 rounded-xl text-xl font-bold text-gray-300 hover:bg-gray-700"
                 >−</button>
                 <input
                   type="number"
-                  value={weights[key]}
-                  onChange={(e) => setWeights((w) => ({ ...w, [key]: Number(e.target.value) }))}
+                  value={formatNum(toDisplay(weights[key], unit))}
+                  onChange={(e) => setWeights((w) => ({ ...w, [key]: fromDisplay(Number(e.target.value), unit) }))}
                   className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-3 text-white text-center text-lg"
-                  min={getMinWeight(key, barWeight)} step={2.5}
+                  min={formatNum(toDisplay(min, unit))} step={unit === 'lb' ? 5 : 2.5}
                 />
-                <span className="text-gray-400 text-sm w-6">kg</span>
+                <span className="text-gray-400 text-sm w-6">{unit}</span>
                 <button
-                  onClick={() => setWeights((w) => ({ ...w, [key]: w[key] + ex.increment }))}
+                  onClick={() => setWeights((w) => ({ ...w, [key]: w[key] + inc }))}
                   className="w-12 h-12 bg-gray-800 rounded-xl text-xl font-bold text-gray-300 hover:bg-gray-700"
                 >+</button>
               </div>
