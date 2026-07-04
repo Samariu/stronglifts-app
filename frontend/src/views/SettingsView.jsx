@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { EXERCISES, ALL_PLATE_SIZES, computeNextWeight, getMinWeight, getRestSeconds } from '../lib/program';
 import { PROGRAMS, ACCESSORIES, getActiveProgram, getProgramExerciseKeys } from '../lib/programs';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { getSyncQueueLength } from '../lib/sync';
+import { exportBackupFile, parseBackup } from '../lib/backup';
 
 /* eslint-disable no-undef */
 const APP_VERSION = __APP_VERSION__;
@@ -13,10 +14,33 @@ const INCREMENT_OPTIONS = {
   default:  [1.25, 2.5],
 };
 
-export default function SettingsView({ settings, sessions, updateSettings, needRefresh, updateServiceWorker, checkForUpdate }) {
+export default function SettingsView({ settings, sessions, updateSettings, upsertSession, needRefresh, updateServiceWorker, checkForUpdate }) {
   const [backendUrl, setBackendUrl] = useState(settings.backendUrl ?? '');
   const [saved, setSaved] = useState(false);
   const [updateCheck, setUpdateCheck] = useState('idle'); // idle | checking | done | unavailable
+  const [restoreMsg, setRestoreMsg] = useState(null);
+  const backupInputRef = useRef(null);
+
+  const handleRestore = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const { settings: restoredSettings, sessions: restoredSessions, errors } = parseBackup(await file.text());
+    if (!restoredSettings && restoredSessions.length === 0) {
+      setRestoreMsg(`Restore failed: ${errors[0] ?? 'no usable data'}`);
+      setTimeout(() => setRestoreMsg(null), 5000);
+      return;
+    }
+    const what = [
+      restoredSessions.length > 0 ? `${restoredSessions.length} session${restoredSessions.length !== 1 ? 's' : ''}` : null,
+      restoredSettings ? 'settings' : null,
+    ].filter(Boolean).join(' and ');
+    if (!confirm(`Restore ${what} from backup? Existing entries with the same date are overwritten.`)) return;
+    for (const s of restoredSessions) await upsertSession(s);
+    if (restoredSettings) await updateSettings(restoredSettings);
+    setRestoreMsg(errors.length > 0 ? `Restored ${what} (${errors.length} entries skipped)` : `Restored ${what} ✓`);
+    setTimeout(() => setRestoreMsg(null), 5000);
+  };
 
   const handleCheckUpdate = async () => {
     setUpdateCheck('checking');
@@ -411,6 +435,40 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
         <div className="text-xs text-gray-600 text-center">
           {getSyncQueueLength()} item{getSyncQueueLength() !== 1 ? 's' : ''} pending sync
         </div>
+      </section>
+
+      {/* Backup & restore */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <h2 className="font-semibold text-gray-300">Backup &amp; Restore</h2>
+        <p className="text-xs text-gray-500">
+          Full JSON backup of your settings and complete workout history. Unlike CSV, this restores everything exactly.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => exportBackupFile(sessions, settings)}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 transition-colors"
+          >
+            Export backup
+          </button>
+          <button
+            onClick={() => backupInputRef.current?.click()}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 transition-colors"
+          >
+            Restore backup
+          </button>
+          <input
+            ref={backupInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={handleRestore}
+          />
+        </div>
+        {restoreMsg && (
+          <div className="text-center text-sm text-green-400 bg-green-900/20 rounded-xl py-2 px-3">
+            {restoreMsg}
+          </div>
+        )}
       </section>
 
       {/* Danger zone */}

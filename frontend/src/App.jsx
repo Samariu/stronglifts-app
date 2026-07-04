@@ -107,6 +107,7 @@ export default function App() {
             settings={settings}
             sessions={sessions}
             updateSettings={updateSettings}
+            upsertSession={upsertSession}
             needRefresh={needRefresh}
             updateServiceWorker={updateServiceWorker}
             checkForUpdate={checkForUpdate}
