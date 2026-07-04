@@ -1,22 +1,41 @@
-import { useState } from 'react';
-import { EXERCISES, ALL_PLATE_SIZES, computeNextWeight, getMinWeight, getRestSeconds } from '../lib/program';
+import { useState, useRef } from 'react';
+import { EXERCISES, computeNextWeight, getMinWeight, getRestSeconds } from '../lib/program';
 import { PROGRAMS, ACCESSORIES, getActiveProgram, getProgramExerciseKeys } from '../lib/programs';
+import { getUnitProfile, formatWeight, formatNum, toDisplay, unitSwitchDefaults } from '../lib/units';
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { getSyncQueueLength } from '../lib/sync';
+import { exportBackupFile, parseBackup } from '../lib/backup';
 
 /* eslint-disable no-undef */
 const APP_VERSION = __APP_VERSION__;
 
-// [lower, higher] options per exercise
-const INCREMENT_OPTIONS = {
-  deadlift: [2.5, 5.0],
-  default:  [1.25, 2.5],
-};
-
-export default function SettingsView({ settings, sessions, updateSettings, needRefresh, updateServiceWorker, checkForUpdate }) {
+export default function SettingsView({ settings, sessions, updateSettings, upsertSession, needRefresh, updateServiceWorker, checkForUpdate }) {
   const [backendUrl, setBackendUrl] = useState(settings.backendUrl ?? '');
   const [saved, setSaved] = useState(false);
   const [updateCheck, setUpdateCheck] = useState('idle'); // idle | checking | done | unavailable
+  const [restoreMsg, setRestoreMsg] = useState(null);
+  const backupInputRef = useRef(null);
+
+  const handleRestore = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const { settings: restoredSettings, sessions: restoredSessions, errors } = parseBackup(await file.text());
+    if (!restoredSettings && restoredSessions.length === 0) {
+      setRestoreMsg(`Restore failed: ${errors[0] ?? 'no usable data'}`);
+      setTimeout(() => setRestoreMsg(null), 5000);
+      return;
+    }
+    const what = [
+      restoredSessions.length > 0 ? `${restoredSessions.length} session${restoredSessions.length !== 1 ? 's' : ''}` : null,
+      restoredSettings ? 'settings' : null,
+    ].filter(Boolean).join(' and ');
+    if (!confirm(`Restore ${what} from backup? Existing entries with the same date are overwritten.`)) return;
+    for (const s of restoredSessions) await upsertSession(s);
+    if (restoredSettings) await updateSettings(restoredSettings);
+    setRestoreMsg(errors.length > 0 ? `Restored ${what} (${errors.length} entries skipped)` : `Restored ${what} ✓`);
+    setTimeout(() => setRestoreMsg(null), 5000);
+  };
 
   const handleCheckUpdate = async () => {
     setUpdateCheck('checking');
@@ -31,13 +50,24 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
 
   const program      = getActiveProgram(settings);
   const exerciseKeys = getProgramExerciseKeys(program);
+  const unitProfile  = getUnitProfile(settings);
+  const unit         = unitProfile.unit;
 
   const getIncrement = (key) => increments[key] ?? EXERCISES[key]?.increment ?? 2.5;
 
   const currentWeight = (key) => {
     const override = settings.nextWeightOverrides?.[key];
     if (override != null) return override;
-    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key), program);
+    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key), program, unitProfile.roundStep);
+  };
+
+  const switchUnit = (nextUnit) => {
+    if (nextUnit === unit) return;
+    if (!confirm(
+      `Switch to ${nextUnit}? Plates, bar weight and increments reset to standard ${nextUnit} values. ` +
+      'Your history and working weights are kept and simply shown converted.'
+    )) return;
+    updateSettings(unitSwitchDefaults(nextUnit));
   };
 
   const switchProgram = (id) => {
@@ -45,6 +75,16 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
     const name = PROGRAMS[id]?.name ?? id;
     if (!confirm(`Switch to ${name}? Your history is kept and working weights carry over by exercise.`)) return;
     updateSettings({ program: id });
+  };
+
+  const activeDows = settings.scheduleDows ?? program.schedule?.dows ?? [2, 4, 6];
+
+  const toggleDow = (dow) => {
+    const next = activeDows.includes(dow)
+      ? activeDows.filter((d) => d !== dow)
+      : [...activeDows, dow].sort((a, b) => a - b);
+    if (next.length === 0) return; // always keep at least one training day
+    updateSettings({ scheduleDows: next });
   };
 
   const accessoriesFor = (label) => settings.accessories?.[label] ?? [];
@@ -142,6 +182,61 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
         </div>
       </section>
 
+      {/* Units */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-gray-300">Units</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Switching converts the display; your logged history stays intact.</p>
+        </div>
+        <div className="flex bg-gray-800 rounded-lg p-0.5 gap-0.5">
+          {['kg', 'lb'].map((u) => (
+            <button
+              key={u}
+              onClick={() => switchUnit(u)}
+              className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${
+                unit === u ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {u}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Schedule */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-gray-300">Training Days</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Days shown as planned workouts on the History calendar.</p>
+        </div>
+        <div className="flex gap-1.5">
+          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((label, dow) => {
+            const active = activeDows.includes(dow);
+            return (
+              <button
+                key={dow}
+                onClick={() => toggleDow(dow)}
+                className={`flex-1 py-2 rounded-lg text-xs font-bold border-2 transition-colors ${
+                  active
+                    ? 'bg-orange-500/20 border-orange-500 text-orange-400'
+                    : 'bg-gray-800 border-gray-700 text-gray-600'
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        {settings.scheduleDows != null && (
+          <button
+            onClick={() => updateSettings({ scheduleDows: null })}
+            className="w-full py-2 rounded-xl text-xs font-medium text-gray-500 hover:text-white bg-gray-800 hover:bg-gray-700 transition-colors"
+          >
+            Reset to program default
+          </button>
+        )}
+      </section>
+
       {/* Current working weights */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <div>
@@ -156,11 +251,11 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
             <div key={key} className="flex items-center gap-3">
               <span className="flex-1 text-sm">{ex.name}</span>
               <button
-                onClick={() => updateSettings({ nextWeightOverrides: { [key]: Math.max(getMinWeight(key, settings.barWeight ?? 20), displayed - inc) } })}
+                onClick={() => updateSettings({ nextWeightOverrides: { [key]: Math.max(getMinWeight(key, settings.barWeight ?? 20, unitProfile.minPlatePair), displayed - inc) } })}
                 className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
               >−</button>
               <span className="w-16 text-center font-mono font-bold text-orange-400">
-                {displayed}kg
+                {formatWeight(displayed, unit)}
               </span>
               <button
                 onClick={() => updateSettings({ nextWeightOverrides: { [key]: displayed + inc } })}
@@ -179,7 +274,7 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
         </div>
         {exerciseKeys.map((key) => {
           const ex = EXERCISES[key];
-          const options = INCREMENT_OPTIONS[key] ?? INCREMENT_OPTIONS.default;
+          const options = unitProfile.incrementOptions[key === 'deadlift' ? 'deadlift' : 'default'];
           const current = getIncrement(key);
           return (
             <div key={key} className="flex items-center gap-3">
@@ -195,7 +290,7 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
                         : 'text-gray-400 hover:text-white'
                     }`}
                   >
-                    +{opt}kg
+                    +{formatNum(toDisplay(opt, unit))}{unit}
                   </button>
                 ))}
               </div>
@@ -209,7 +304,7 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
         <h2 className="font-semibold text-gray-300">Available Plates</h2>
         <p className="text-xs text-gray-500">Toggle the plates your gym has. Used for warmup and plate math.</p>
         <div className="flex flex-wrap gap-2">
-          {ALL_PLATE_SIZES.map((plate) => {
+          {unitProfile.plates.map((plate) => {
             const active = availablePlates.includes(plate);
             return (
               <button
@@ -221,7 +316,7 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
                     : 'bg-gray-800 border-gray-700 text-gray-600'
                 }`}
               >
-                {plate}kg
+                {formatNum(toDisplay(plate, unit))}{unit}
               </button>
             );
           })}
@@ -262,12 +357,12 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
         <div className="flex items-center gap-3">
           <span className="flex-1 text-sm text-gray-400">Barbell weight</span>
           <button
-            onClick={() => updateSettings({ barWeight: Math.max(10, settings.barWeight - 2.5) })}
+            onClick={() => updateSettings({ barWeight: Math.max(unitProfile.barStep, settings.barWeight - unitProfile.barStep) })}
             className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
           >−</button>
-          <span className="w-16 text-center font-mono font-bold">{settings.barWeight}kg</span>
+          <span className="w-16 text-center font-mono font-bold">{formatWeight(settings.barWeight, unit)}</span>
           <button
-            onClick={() => updateSettings({ barWeight: settings.barWeight + 2.5 })}
+            onClick={() => updateSettings({ barWeight: settings.barWeight + unitProfile.barStep })}
             className="w-9 h-9 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
           >+</button>
         </div>
@@ -345,12 +440,12 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
                     {acc.unit === 'kg' && (
                       <>
                         <button
-                          onClick={() => updateAccessory(label, a.key, { weight: Math.max(0, (a.weight ?? 0) - 2.5) })}
+                          onClick={() => updateAccessory(label, a.key, { weight: Math.max(0, (a.weight ?? 0) - unitProfile.roundStep) })}
                           className="w-8 h-8 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
                         >−</button>
-                        <span className="w-12 text-center text-xs font-mono text-orange-400">{a.weight ?? 0}kg</span>
+                        <span className="w-12 text-center text-xs font-mono text-orange-400">{formatWeight(a.weight ?? 0, unit)}</span>
                         <button
-                          onClick={() => updateAccessory(label, a.key, { weight: (a.weight ?? 0) + 2.5 })}
+                          onClick={() => updateAccessory(label, a.key, { weight: (a.weight ?? 0) + unitProfile.roundStep })}
                           className="w-8 h-8 bg-gray-800 rounded-lg font-bold hover:bg-gray-700"
                         >+</button>
                       </>
@@ -411,6 +506,40 @@ export default function SettingsView({ settings, sessions, updateSettings, needR
         <div className="text-xs text-gray-600 text-center">
           {getSyncQueueLength()} item{getSyncQueueLength() !== 1 ? 's' : ''} pending sync
         </div>
+      </section>
+
+      {/* Backup & restore */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <h2 className="font-semibold text-gray-300">Backup &amp; Restore</h2>
+        <p className="text-xs text-gray-500">
+          Full JSON backup of your settings and complete workout history. Unlike CSV, this restores everything exactly.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => exportBackupFile(sessions, settings)}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 transition-colors"
+          >
+            Export backup
+          </button>
+          <button
+            onClick={() => backupInputRef.current?.click()}
+            className="flex-1 py-2.5 rounded-xl text-sm font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 transition-colors"
+          >
+            Restore backup
+          </button>
+          <input
+            ref={backupInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={handleRestore}
+          />
+        </div>
+        {restoreMsg && (
+          <div className="text-center text-sm text-green-400 bg-green-900/20 rounded-xl py-2 px-3">
+            {restoreMsg}
+          </div>
+        )}
       </section>
 
       {/* Danger zone */}

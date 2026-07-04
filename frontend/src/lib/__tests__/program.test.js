@@ -18,6 +18,8 @@ import {
   getPlatesPerSide,
   formatPlates,
   getWarmupSets,
+  bestLoggedWeight,
+  computeStreak,
 } from '../program.js';
 
 // --- Test helpers ----------------------------------------------------------
@@ -328,5 +330,55 @@ describe('computeNextWeight', () => {
       makeSession('2026-01-03', 'B', 'overheadPress', 40, 5, 5), // no bench after
     ];
     expect(computeNextWeight(sessions, 'benchPress', 20)).toBe(62.5);
+  });
+});
+
+// =========================================================================
+// bestLoggedWeight
+// =========================================================================
+describe('bestLoggedWeight', () => {
+  it('returns the heaviest weight with at least one completed set', () => {
+    const sessions = [
+      makeSession('2026-01-01', 'A', 'squat', 100, 5, 5),
+      makeSession('2026-01-03', 'A', 'squat', 105, 3, 5), // partial still counts
+      makeSession('2026-01-05', 'A', 'squat', 107.5, 0, 5), // no completed sets — ignored
+    ];
+    expect(bestLoggedWeight(sessions, 'squat')).toBe(105);
+  });
+  it('returns null with no history for the exercise', () => {
+    expect(bestLoggedWeight([], 'squat')).toBe(null);
+    const other = [makeSession('2026-01-01', 'B', 'deadlift', 100, 1, 1)];
+    expect(bestLoggedWeight(other, 'squat')).toBe(null);
+  });
+});
+
+// =========================================================================
+// computeStreak
+// =========================================================================
+describe('computeStreak', () => {
+  it('is 0 with no logged sessions and 1 with a single session', () => {
+    expect(computeStreak([])).toBe(0);
+    expect(computeStreak([makeSession('2026-01-01', 'A', 'squat', 100, 5, 5)])).toBe(1);
+  });
+  it('counts consecutive sessions with gaps of at most 4 days', () => {
+    const sessions = [
+      makeSession('2026-01-01', 'A', 'squat', 100, 5, 5),
+      makeSession('2026-01-03', 'B', 'deadlift', 100, 1, 1),
+      makeSession('2026-01-06', 'A', 'squat', 100, 5, 5), // weekend-style 3-day gap ok
+    ];
+    expect(computeStreak(sessions)).toBe(3);
+  });
+  it('breaks the streak on a gap over 4 days', () => {
+    const sessions = [
+      makeSession('2026-01-01', 'A', 'squat', 100, 5, 5),
+      makeSession('2026-01-10', 'B', 'deadlift', 100, 1, 1), // 9-day gap
+      makeSession('2026-01-12', 'A', 'squat', 100, 5, 5),
+    ];
+    expect(computeStreak(sessions)).toBe(2);
+  });
+  it('ignores sessions without any logged sets', () => {
+    const empty = { date: '2026-01-05', workoutType: 'A', exercises: { squat: { weight: 100, sets: [] } } };
+    const sessions = [makeSession('2026-01-01', 'A', 'squat', 100, 5, 5), empty];
+    expect(computeStreak(sessions)).toBe(1);
   });
 });

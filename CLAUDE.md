@@ -17,9 +17,9 @@ cd frontend && npm run test  # Vitest (pure-function unit tests in src/lib/__tes
 ```
 
 Tests are Vitest unit tests covering the pure logic in `lib/program.js`,
-`lib/programs.js`, `lib/db.js` (migrations), and `lib/import.js`. There is no
-component/UI test coverage. Run `npm run test:watch` from `frontend/` while
-iterating.
+`lib/programs.js`, `lib/units.js`, `lib/backup.js`, `lib/db.js` (migrations),
+and `lib/import.js`. There is no component/UI test coverage. Run
+`npm run test:watch` from `frontend/` while iterating.
 
 ## Architecture
 
@@ -58,6 +58,19 @@ Adding a program is mostly a declarative entry in `PROGRAMS`.
 - Warmup is always exactly 5 sets × 5 reps, ramping to the working weight using only
   5 kg+ plates (no small-plate reloads); repeated ramp weights are kept as separate sets.
 
+**Units** (`lib/units.js`): all weights are **stored in kg**, always. `settings.unit`
+(`'kg' | 'lb'`) only changes the display/input edges plus the "hardware" defaults —
+plate set, bar weight, increments, deload rounding step — which are themselves stored
+as exact kg values (`UNIT_PROFILES`). Switching units resets the hardware settings via
+`unitSwitchDefaults` but never touches history. Engine functions take the unit values
+as optional parameters with kg defaults (`deload(w, step)`, `computeNextWeight(...,
+roundStep)`, `getWarmupSets(..., minWarmupPlate)`, `getMinWeight(..., platePair)`,
+`formatPlates(..., unit)`).
+
+**Backup** (`lib/backup.js`): lossless JSON export/restore of settings + all sessions
+(versioned format marker `stronglifts-backup`), the disaster-recovery complement to the
+lossy CSV path.
+
 **Sync** (`lib/sync.js`) is optional and offline-first: changes are queued in `localStorage`; `trySync()` flushes the queue to the backend when reachable. The frontend works fully without a backend.
 
 ### Backend (`backend/`)
@@ -92,6 +105,8 @@ Run it with `npm run backend` from the repo root; it listens on port 3001. Set `
 ```js
 {
   program: '5x5',              // active program id (key into PROGRAMS in lib/programs.js)
+  unit: 'kg',                  // display unit ('kg' | 'lb') — storage is always kg
+  scheduleDows: null,          // training days 0-6 for the History projection; null = program default
   barWeight: 20,
   availablePlates: number[],   // subset of ALL_PLATE_SIZES from program.js
   weights:    { [exerciseKey]: number },  // starting weights (incl. bench variations)

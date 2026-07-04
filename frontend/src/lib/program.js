@@ -12,6 +12,10 @@ export const EXERCISES = {
 
 export const ALL_PLATE_SIZES = [25, 20, 15, 10, 5, 2.5, 1.25];
 
+// Defined here (not in units.js) so formatPlates can label lb plates without a
+// circular import — lib/units.js re-exports it as the canonical name.
+export const KG_PER_LB = 0.45359237;
+
 export const WORKOUT_A = ['squat', 'benchPress', 'barbellRow'];
 export const WORKOUT_B = ['squat', 'overheadPress', 'deadlift'];
 
@@ -32,10 +36,11 @@ export const getSetsReps = (exerciseKey, program) => {
 
 // Smallest sensible working weight for an exercise.
 // Deadlift and Barbell Row need a plate on each side to raise the bar to
-// pulling height, so their minimum is bar + 5 kg per side (e.g. 30 kg).
-export const getMinWeight = (exerciseKey, barWeight = 20) =>
+// pulling height; platePair is the weight of that smallest full-size pair
+// (2 × 5 kg by default; the lb profile passes 2 × 10 lb).
+export const getMinWeight = (exerciseKey, barWeight = 20, platePair = 10) =>
   exerciseKey === 'deadlift' || exerciseKey === 'barbellRow'
-    ? barWeight + 10
+    ? barWeight + platePair
     : barWeight;
 
 // Rest time (seconds) for an exercise, with fallbacks for the legacy
@@ -64,7 +69,9 @@ export const getWorkoutExercises = (type, program) => {
 
 export const epley1RM       = (weight, reps) => weight * (1 + reps / 30);
 export const roundToNearest = (value, step)  => Math.round(value / step) * step;
-export const deload         = (weight)       => roundToNearest(weight * 0.9, 2.5);
+// 10% deload, snapped to the smallest loadable step (2.5 kg default; the lb
+// profile passes its 5 lb equivalent).
+export const deload         = (weight, step = 2.5) => roundToNearest(weight * 0.9, step);
 
 // Whether a single exercise was fully completed in a session
 export const exerciseSucceeded = (session, exerciseKey, program) => {
@@ -98,6 +105,7 @@ export const computeNextWeight = (
   settingWeight,
   increment = EXERCISES[exerciseKey]?.increment ?? 2.5,
   program,
+  roundStep = 2.5,
 ) => {
   const relevant = sessions
     .filter((s) => s.exercises && exerciseKey in s.exercises)
@@ -110,9 +118,42 @@ export const computeNextWeight = (
 
   const failures = countConsecutiveFailures(sessions, exerciseKey, program);
 
-  if (failures >= 3)                                 return deload(lastWeight);
+  if (failures >= 3)                                 return deload(lastWeight, roundStep);
   if (exerciseSucceeded(last, exerciseKey, program)) return lastWeight + increment;
   return lastWeight;
+};
+
+// Heaviest weight ever logged for an exercise with at least one completed set.
+// Returns null when the exercise has no history — used for PR detection.
+export const bestLoggedWeight = (sessions, exerciseKey) => {
+  let best = null;
+  for (const s of sessions) {
+    const ex = s.exercises?.[exerciseKey];
+    if (!ex || ex.weight == null) continue;
+    if (!(ex.sets ?? []).some((set) => set.completed)) continue;
+    if (best === null || ex.weight > best) best = ex.weight;
+  }
+  return best;
+};
+
+// Current workout streak: consecutive sessions (walking back from the latest)
+// whose gap to the previous session is at most maxGapDays. Tolerates the
+// 3×/week cadence (a weekend gap is 3 days). Sessions without logged sets are
+// ignored.
+export const computeStreak = (sessions, maxGapDays = 4) => {
+  const dates = [...new Set(
+    sessions
+      .filter((s) => Object.values(s.exercises ?? {}).some((ex) => (ex.sets ?? []).length > 0))
+      .map((s) => s.date),
+  )].sort();
+  if (dates.length === 0) return 0;
+  let streak = 1;
+  for (let i = dates.length - 1; i > 0; i--) {
+    const gap = (new Date(dates[i]) - new Date(dates[i - 1])) / 86400000;
+    if (gap > maxGapDays) break;
+    streak++;
+  }
+  return streak;
 };
 
 // Plates per side — uses availablePlates from settings (falls back to all plates)
@@ -131,12 +172,14 @@ export const getPlatesPerSide = (targetWeight, barWeight = 20, availablePlates =
   return plates;
 };
 
-export const formatPlates = (targetWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES) => {
+export const formatPlates = (targetWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES, unit = 'kg') => {
   const plates = getPlatesPerSide(targetWeight, barWeight, availablePlates);
   if (plates.length === 0) return 'Bar only';
   const counts = {};
   for (const p of plates) counts[p] = (counts[p] || 0) + 1;
-  return Object.entries(counts).map(([p, c]) => `${c}×${p}kg`).join(' + ');
+  const label = (kg) =>
+    unit === 'lb' ? `${Math.round((kg / KG_PER_LB) * 10) / 10}lb` : `${kg}kg`;
+  return Object.entries(counts).map(([p, c]) => `${c}×${label(Number(p))}`).join(' + ');
 };
 
 // Warmup sets following the StrongLifts protocol — ALWAYS exactly 5 sets × 5 reps:
@@ -146,11 +189,12 @@ export const formatPlates = (targetWeight, barWeight = 20, availablePlates = ALL
 // 5 kg+ plates only (no reloading the bar with tiny 1.25/2.5 kg plates). When two
 // ramp steps snap to the same weight they are kept as separate sets — the set
 // count stays 5, you just don't change the bar between them.
-export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES, includeBarSets = true) => {
+export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES, includeBarSets = true, minWarmupPlate = 5) => {
   if (workingWeight <= barWeight) return [];
 
-  // Warmups round to whole 5 kg+ plates; small plates (2.5/1.25 kg) are skipped.
-  const warmupPlates  = availablePlates.filter((p) => p >= 5);
+  // Warmups round to whole full-size plates; small plates (2.5/1.25 kg or
+  // 2.5/5 lb) are skipped. The lb profile passes its own threshold.
+  const warmupPlates  = availablePlates.filter((p) => p >= minWarmupPlate);
   const smallestPlate = Math.min(...(warmupPlates.length ? warmupPlates : availablePlates));
   const step = smallestPlate * 2;
 
