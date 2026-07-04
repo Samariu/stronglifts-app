@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   EXERCISES, getWorkoutExercises, getSetsReps,
   computeNextWeight, countConsecutiveFailures, formatPlates, getRestSeconds,
+  deload, bestLoggedWeight,
 } from '../lib/program';
 import { getActiveProgram, ACCESSORIES } from '../lib/programs';
 import { makeSessionId } from '../lib/db';
@@ -198,6 +199,13 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
     return result;
   }, [pastSessions, exercises, program]);
 
+  // All-time best logged weight per exercise — today's weight above it is a PR.
+  const bestWeights = useMemo(() => {
+    const result = {};
+    for (const key of exercises) result[key] = bestLoggedWeight(pastSessions, key);
+    return result;
+  }, [pastSessions, exercises]);
+
   const allDone = exercises.every((key) => {
     const { sets: total } = getSetsReps(key, program);
     return (setResults[key]?.sets?.length ?? 0) >= total;
@@ -298,10 +306,15 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
                     <span className="text-gray-500 text-sm">
                       {totalSets}×{reps}
                     </span>
+                    {bestWeights[key] !== null && weight > bestWeights[key] && (
+                      <span className="text-xs bg-yellow-900/40 text-yellow-400 px-2 py-0.5 rounded-full">
+                        🏆 PR
+                      </span>
+                    )}
                     {f > 0 && (
                       <span className="text-xs bg-red-900/50 text-red-400 px-2 py-0.5 rounded-full">
                         {f} fail{f > 1 ? 's' : ''}
-                        {f >= 3 ? ' → deloaded' : ''}
+                        {f >= 3 ? ' → deloaded' : f === 2 ? ` · next fail deloads to ${deload(weight)}kg` : ''}
                       </span>
                     )}
                   </div>

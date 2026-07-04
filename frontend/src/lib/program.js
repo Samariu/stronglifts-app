@@ -115,6 +115,39 @@ export const computeNextWeight = (
   return lastWeight;
 };
 
+// Heaviest weight ever logged for an exercise with at least one completed set.
+// Returns null when the exercise has no history — used for PR detection.
+export const bestLoggedWeight = (sessions, exerciseKey) => {
+  let best = null;
+  for (const s of sessions) {
+    const ex = s.exercises?.[exerciseKey];
+    if (!ex || ex.weight == null) continue;
+    if (!(ex.sets ?? []).some((set) => set.completed)) continue;
+    if (best === null || ex.weight > best) best = ex.weight;
+  }
+  return best;
+};
+
+// Current workout streak: consecutive sessions (walking back from the latest)
+// whose gap to the previous session is at most maxGapDays. Tolerates the
+// 3×/week cadence (a weekend gap is 3 days). Sessions without logged sets are
+// ignored.
+export const computeStreak = (sessions, maxGapDays = 4) => {
+  const dates = [...new Set(
+    sessions
+      .filter((s) => Object.values(s.exercises ?? {}).some((ex) => (ex.sets ?? []).length > 0))
+      .map((s) => s.date),
+  )].sort();
+  if (dates.length === 0) return 0;
+  let streak = 1;
+  for (let i = dates.length - 1; i > 0; i--) {
+    const gap = (new Date(dates[i]) - new Date(dates[i - 1])) / 86400000;
+    if (gap > maxGapDays) break;
+    streak++;
+  }
+  return streak;
+};
+
 // Plates per side — uses availablePlates from settings (falls back to all plates)
 export const getPlatesPerSide = (targetWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES) => {
   const sorted  = [...availablePlates].sort((a, b) => b - a); // largest first
