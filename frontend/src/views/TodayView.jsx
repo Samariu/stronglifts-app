@@ -215,8 +215,14 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
   if (allDone && !showSets) {
     const ci = program.cycle.indexOf(workoutType);
     const nextType = program.cycle[(ci + 1) % program.cycle.length] ?? program.cycle[0];
+    // Next training day from the user's schedule (falls back to the program's)
+    const dows = settings.scheduleDows ?? program.schedule?.dows ?? [2, 4, 6];
     const nextDate = new Date();
-    nextDate.setDate(nextDate.getDate() + 2);
+    let daysAhead = 0;
+    do {
+      nextDate.setDate(nextDate.getDate() + 1);
+      daysAhead++;
+    } while (!dows.includes(nextDate.getDay()) && daysAhead < 8);
     const nextDay = nextDate.toLocaleDateString('en-US', { weekday: 'long' });
 
     return (
@@ -229,7 +235,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
             <div className="text-gray-400 text-sm">Next up</div>
             <div className="text-white font-bold text-xl">Workout {nextType}</div>
             <div className="text-gray-500 text-sm">
-              Rest tomorrow · back {nextDay}
+              {daysAhead > 1 ? `Rest tomorrow · back ${nextDay}` : 'Back tomorrow'}
             </div>
           </div>
           <button

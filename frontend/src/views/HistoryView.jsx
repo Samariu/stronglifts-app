@@ -33,7 +33,7 @@ export default function HistoryView({ sessions, settings, upsertSession, removeS
   const futureSessions = useMemo(() => {
     const map = {};
     const cycle = program.cycle;
-    const dows = program.schedule?.dows ?? [2, 4, 6];
+    const dows = settings.scheduleDows ?? program.schedule?.dows ?? [2, 4, 6];
     const nextInCycle = (label) => {
       const i = cycle.indexOf(label);
       return cycle[(i + 1) % cycle.length] ?? cycle[0];
@@ -52,7 +52,7 @@ export default function HistoryView({ sessions, settings, upsertSession, removeS
       type = nextInCycle(type);
     }
     return map;
-  }, [sessions, sessionsByDate, todayStr, program]);
+  }, [sessions, sessionsByDate, todayStr, program, settings.scheduleDows]);
 
   const prevMonth = () => {
     if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }

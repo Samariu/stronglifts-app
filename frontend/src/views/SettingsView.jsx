@@ -71,6 +71,16 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
     updateSettings({ program: id });
   };
 
+  const activeDows = settings.scheduleDows ?? program.schedule?.dows ?? [2, 4, 6];
+
+  const toggleDow = (dow) => {
+    const next = activeDows.includes(dow)
+      ? activeDows.filter((d) => d !== dow)
+      : [...activeDows, dow].sort((a, b) => a - b);
+    if (next.length === 0) return; // always keep at least one training day
+    updateSettings({ scheduleDows: next });
+  };
+
   const accessoriesFor = (label) => settings.accessories?.[label] ?? [];
 
   const toggleAccessory = (label, key) => {
@@ -164,6 +174,40 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
             );
           })}
         </div>
+      </section>
+
+      {/* Schedule */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-gray-300">Training Days</h2>
+          <p className="text-xs text-gray-600 mt-0.5">Days shown as planned workouts on the History calendar.</p>
+        </div>
+        <div className="flex gap-1.5">
+          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((label, dow) => {
+            const active = activeDows.includes(dow);
+            return (
+              <button
+                key={dow}
+                onClick={() => toggleDow(dow)}
+                className={`flex-1 py-2 rounded-lg text-xs font-bold border-2 transition-colors ${
+                  active
+                    ? 'bg-orange-500/20 border-orange-500 text-orange-400'
+                    : 'bg-gray-800 border-gray-700 text-gray-600'
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        {settings.scheduleDows != null && (
+          <button
+            onClick={() => updateSettings({ scheduleDows: null })}
+            className="w-full py-2 rounded-xl text-xs font-medium text-gray-500 hover:text-white bg-gray-800 hover:bg-gray-700 transition-colors"
+          >
+            Reset to program default
+          </button>
+        )}
       </section>
 
       {/* Current working weights */}

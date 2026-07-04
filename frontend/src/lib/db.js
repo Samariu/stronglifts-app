@@ -101,6 +101,8 @@ export const DEFAULT_SETTINGS = {
   },
   // Per-workout-label assistance work the user has enabled, e.g. { A: [{ key, sets, weight }] }
   accessories: {},
+  // Training days (0=Sun … 6=Sat) for the History projection; null follows the program default.
+  scheduleDows: null,
   nextWeightOverrides: {},
   csvImportConflict: 'ask',
   setupComplete: false,
