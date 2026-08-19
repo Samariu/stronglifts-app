@@ -36,6 +36,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // Appends our notificationclick handler to the generated service worker
+        // (resolved relative to the SW at <base>sw.js; the file ships from public/).
+        importScripts: ['sw-notifications.js'],
         runtimeCaching: [
           {
             urlPattern: /^https?:\/\/.*\/api\//,
