@@ -114,6 +114,7 @@ Run it with `npm run backend` from the repo root; it listens on port 3001. Set `
   increments: { [exerciseKey]: number },  // per-exercise progression step
   rom:        { [exerciseKey]: number },  // range of motion (m), for Stats energy/distance
   accessories: { [workoutLabel]: [{ key, sets, weight }] },  // enabled assistance work
+  notifications: { enabled, sound, keepAwake },  // rest-timer alerts; enabled starts false
   setupComplete: boolean,      // gates SetupWizard — false on first launch
   backendUrl: string,          // empty string disables sync
 }
@@ -131,6 +132,31 @@ version bump is needed since both stores are schemaless.
 
 - `lib/export.js` — CSV export of all sessions (triggered from SettingsView)
 - `views/ProgressView.jsx` — uses Recharts for weight-over-time charts
+
+### Rest timer alerts
+
+The rest timer has to reach the user when the app is not in the foreground, which
+on iOS means three cooperating layers — there is **no** web API for scheduling a
+local notification or touching the system clock, so all of this is best-effort:
+
+- `lib/notify.js` — permission handling plus `notifyRestDone()`, which raises the
+  notification through `registration.showNotification()` (the `new Notification()`
+  constructor does not exist on iOS). Requires a Home-Screen-installed PWA on
+  iOS 16.4+; every entry point degrades to a no-op elsewhere.
+- `lib/audio.js` — the alarm beep and a looping near-silent WAV that holds an
+  audio session open, which is what keeps the page (and so the timer) running
+  under a screen lock. Both clips are synthesised to data URIs, so nothing is
+  fetched offline. `unlockAudio()` **must** be called synchronously from a tap —
+  see the top of `logSet` in `TodayView.jsx`; anything after an `await` is too
+  late for iOS.
+- `lib/restTimer.js` — persists the running timer's end time in `localStorage`.
+  `resumeState()` (pure, unit-tested) tells `App.jsx` on launch whether to put a
+  still-running rest back on screen, fire a late "rest finished" notification, or
+  ignore a stale entry.
+
+`frontend/public/sw-notifications.js` adds the `notificationclick` handler and is
+stitched onto the generated Workbox service worker via `workbox.importScripts` in
+`vite.config.js` — the PWA stays on the `generateSW` strategy.
 
 ### Versioning
 

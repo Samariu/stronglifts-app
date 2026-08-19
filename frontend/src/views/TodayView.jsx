@@ -7,6 +7,7 @@ import {
 import { getActiveProgram, ACCESSORIES } from '../lib/programs';
 import { getUnitProfile, formatWeight } from '../lib/units';
 import { makeSessionId } from '../lib/db';
+import { unlockAudio } from '../lib/audio';
 import WarmupCard from '../components/WarmupCard';
 
 // Label colors for the workout switcher / next-up, by position in the cycle.
@@ -145,6 +146,11 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
 
   const logSet = useCallback(
     async (exerciseKey, completed) => {
+      // Prime the timer's audio while we're still inside the tap handler —
+      // iOS only grants background playback to elements unlocked by a gesture,
+      // and the `await persist(...)` below ends that window.
+      unlockAudio();
+
       const acc = accessoryByKey[exerciseKey];
       const total = acc ? acc.sets : getSetsReps(exerciseKey, program).sets;
       const current = setResults[exerciseKey]?.sets ?? [];
@@ -190,6 +196,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
 
   const logExtraSet = useCallback(
     async (exerciseKey) => {
+      unlockAudio(); // same gesture-window reason as logSet
       const current = setResults[exerciseKey]?.sets ?? [];
       const updated = {
         ...setResults,
