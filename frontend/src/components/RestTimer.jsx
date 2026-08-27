@@ -1,35 +1,32 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { playAlarm, startKeepAlive, stopKeepAlive } from '../lib/audio';
-import { notifyRestDone } from '../lib/notify';
-import { saveRestTimer, clearRestTimer } from '../lib/restTimer';
 
-export default function RestTimer({ seconds, onDone, onDismiss, compact = false, notifications = {} }) {
+const beep = () => {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.15, 0.3].forEach((delay) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.4, ctx.currentTime + delay);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.12);
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.12);
+    });
+  } catch { /* AudioContext unavailable (e.g. autoplay policy) — skip the beep */ }
+};
+
+export default function RestTimer({ seconds, onDone, onDismiss, compact = false }) {
   const [remaining, setRemaining] = useState(seconds);
   const [running,   setRunning]   = useState(true);
-
-  const { enabled: notifyEnabled = false, sound = true, keepAwake = true } = notifications;
 
   // Stores the absolute timestamp when the timer should reach zero
   const endTimeRef   = useRef(0);
   const intervalRef  = useRef(null);
-  const timeoutRef   = useRef(null);
-  const firedRef     = useRef(false); // prevent double-fire
+  const firedRef     = useRef(false); // prevent double-beep
 
-  const clearTick = () => {
-    clearInterval(intervalRef.current);
-    clearTimeout(timeoutRef.current);
-  };
-
-  // Everything that happens the moment rest is over. Guarded so the interval,
-  // the deadline timeout and the visibility re-sync can't fire it twice.
-  const fire = useCallback(() => {
-    if (firedRef.current) return;
-    firedRef.current = true;
-    clearRestTimer();
-    if (sound) playAlarm();
-    if (notifyEnabled) notifyRestDone();
-    onDone?.();
-  }, [sound, notifyEnabled, onDone]);
+  const clearTick = () => clearInterval(intervalRef.current);
 
   // Recompute remaining from the stored end timestamp
   const tick = useCallback(() => {
@@ -38,38 +35,28 @@ export default function RestTimer({ seconds, onDone, onDismiss, compact = false,
       setRemaining(0);
       clearTick();
       setRunning(false);
-      fire();
+      if (!firedRef.current) {
+        firedRef.current = true;
+        beep();
+        onDone?.();
+      }
     } else {
       setRemaining(r);
     }
-  }, [fire]);
+  }, [onDone]);
 
   // App remounts RestTimer (via a fresh key) for every new timer, so the end
-  // time only needs to be set once, on mount. Persisting it lets a relaunch
-  // pick the rest back up — or report that it ended while the app was away.
+  // time only needs to be set once, on mount.
   useEffect(() => {
     endTimeRef.current = Date.now() + seconds * 1000;
-    saveRestTimer({ endsAt: endTimeRef.current, seconds });
   }, [seconds]);
 
   // Start / stop the interval
   useEffect(() => {
     if (!running) { clearTick(); return; }
     intervalRef.current = setInterval(tick, 500); // 500ms for snappier display
-    // One long timeout alongside it: when iOS throttles background timers, a
-    // single deadline lands far closer to zero than a coarse repeating tick.
-    timeoutRef.current = setTimeout(tick, Math.max(0, endTimeRef.current - Date.now()) + 50);
     return clearTick;
   }, [running, tick]);
-
-  // Hold an audio session open for the duration. iOS keeps a page with playing
-  // audio alive, so the timer keeps counting with the screen locked and the
-  // alarm is actually audible when it lands.
-  useEffect(() => {
-    if (!running || !keepAwake) return;
-    startKeepAlive();
-    return stopKeepAlive;
-  }, [running, keepAwake]);
 
   // Re-sync when the tab / phone returns from background
   useEffect(() => {
@@ -84,11 +71,9 @@ export default function RestTimer({ seconds, onDone, onDismiss, compact = false,
     if (!running) {
       // Resume: push end time forward by how much is left
       endTimeRef.current = Date.now() + remaining * 1000;
-      saveRestTimer({ endsAt: endTimeRef.current, seconds });
       setRunning(true);
     } else {
       clearTick();
-      clearRestTimer(); // a paused timer has no deadline to come back to
       setRunning(false);
     }
   };
@@ -97,17 +82,14 @@ export default function RestTimer({ seconds, onDone, onDismiss, compact = false,
     clearTick();
     firedRef.current   = false;
     endTimeRef.current = Date.now() + seconds * 1000;
-    saveRestTimer({ endsAt: endTimeRef.current, seconds });
     setRemaining(seconds);
     setRunning(true);
   };
 
   const skip = () => {
     clearTick();
-    clearRestTimer();
     setRemaining(0);
     setRunning(false);
-    // Skipping is deliberate — no alarm, no notification, just move on.
     if (!firedRef.current) { firedRef.current = true; onDone?.(); }
   };
 

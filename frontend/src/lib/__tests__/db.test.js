@@ -76,22 +76,4 @@ describe('migrateSettings', () => {
     // existing values are preserved
     expect(settings.weights.squat).toBe(20);
   });
-
-  it('backfills the rest-timer alert settings on legacy data', () => {
-    const { settings, changed } = migrateSettings({
-      program: '5x5',
-      accessories: {},
-      restTimers: DEFAULT_SETTINGS.restTimers,
-    });
-    expect(changed).toBe(true);
-    expect(settings.notifications).toEqual(DEFAULT_SETTINGS.notifications);
-  });
-
-  it('keeps alert settings the user has already chosen', () => {
-    const { settings } = migrateSettings({
-      ...DEFAULT_SETTINGS,
-      notifications: { enabled: true, sound: false, keepAwake: true },
-    });
-    expect(settings.notifications).toEqual({ enabled: true, sound: false, keepAwake: true });
-  });
 });

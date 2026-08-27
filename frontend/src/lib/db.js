@@ -104,9 +104,6 @@ export const DEFAULT_SETTINGS = {
   accessories: {},
   // Training days (0=Sun … 6=Sat) for the History projection; null follows the program default.
   scheduleDows: null,
-  // Rest-timer alerts that reach you outside the app. `enabled` starts false —
-  // the iOS permission prompt has to be a deliberate tap in Settings.
-  notifications: { enabled: false, sound: true, keepAwake: true },
   nextWeightOverrides: {},
   csvImportConflict: 'ask',
   setupComplete: false,
@@ -126,7 +123,6 @@ export const migrateSettings = (stored) => {
   if (!('accessories' in stored)) changed = true;
   if (!('unit' in stored)) changed = true;
   if (!('scheduleDows' in stored)) changed = true;
-  if (!('notifications' in stored)) changed = true;
 
   // restTimers: legacy { upper, lower } → per-exercise keys
   const rt = stored.restTimers ?? {};
