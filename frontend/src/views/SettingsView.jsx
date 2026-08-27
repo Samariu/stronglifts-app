@@ -5,42 +5,20 @@ import { getUnitProfile, formatWeight, formatNum, toDisplay, unitSwitchDefaults 
 import { DEFAULT_SETTINGS } from '../lib/db';
 import { getSyncQueueLength } from '../lib/sync';
 import { exportBackupFile, parseBackup } from '../lib/backup';
-import { getPermission, requestPermission, isStandalone } from '../lib/notify';
 
 /* eslint-disable no-undef */
 const APP_VERSION = __APP_VERSION__;
+
+// Successful workouts required at a weight before it goes up.
+const INCREMENT_EVERY_OPTIONS = [1, 2, 3, 4];
+const frequencyLabel = (n) => (n === 1 ? 'Every' : `${n}${n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`);
 
 export default function SettingsView({ settings, sessions, updateSettings, upsertSession, needRefresh, updateServiceWorker, checkForUpdate }) {
   const [backendUrl, setBackendUrl] = useState(settings.backendUrl ?? '');
   const [saved, setSaved] = useState(false);
   const [updateCheck, setUpdateCheck] = useState('idle'); // idle | checking | done | unavailable
   const [restoreMsg, setRestoreMsg] = useState(null);
-  const [notifyPermission, setNotifyPermission] = useState(getPermission);
   const backupInputRef = useRef(null);
-
-  const notifications = settings.notifications ?? DEFAULT_SETTINGS.notifications;
-
-  // The permission prompt has to be raised from the tap itself on iOS, so this
-  // stays synchronous up to the requestPermission() call. `enabled` only sticks
-  // if permission actually came back granted.
-  const toggleNotifications = async () => {
-    if (notifications.enabled) {
-      await updateSettings({ notifications: { enabled: false } });
-      return;
-    }
-    const result = await requestPermission();
-    setNotifyPermission(result === 'unsupported' ? 'unsupported' : getPermission());
-    if (result === 'granted') await updateSettings({ notifications: { enabled: true } });
-  };
-
-  const notifyStatus = () => {
-    if (notifyPermission === 'unsupported') return 'This browser has no notification support.';
-    if (notifyPermission === 'granted') return notifications.enabled ? 'On' : 'Allowed — switch on above.';
-    if (notifyPermission === 'denied') return 'Blocked in iOS Settings › Notifications › StrongLifts.';
-    // Only worth saying while permission is still outstanding — that's when it's actionable.
-    if (!isStandalone()) return 'Add to Home Screen first — iOS only allows notifications for installed apps.';
-    return 'Not yet allowed — switching on will ask for permission.';
-  };
 
   const handleRestore = async (e) => {
     const file = e.target.files?.[0];
@@ -80,11 +58,15 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
   const unit         = unitProfile.unit;
 
   const getIncrement = (key) => increments[key] ?? EXERCISES[key]?.increment ?? 2.5;
+  const getIncrementEvery = (key) => settings.incrementEvery?.[key] ?? 1;
 
   const currentWeight = (key) => {
     const override = settings.nextWeightOverrides?.[key];
     if (override != null) return override;
-    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key), program, unitProfile.roundStep);
+    return computeNextWeight(
+      sessions, key, settings.weights[key] ?? 20, getIncrement(key),
+      program, unitProfile.roundStep, getIncrementEvery(key),
+    );
   };
 
   const switchUnit = (nextUnit) => {
@@ -325,6 +307,44 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
         })}
       </section>
 
+      {/* Increase frequency */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-gray-300">Increase Frequency</h2>
+          <p className="text-xs text-gray-600 mt-0.5">
+            How many successful workouts at a weight before it goes up. Slow this down when
+            adding weight every session stops working.
+          </p>
+        </div>
+        {exerciseKeys.map((key) => {
+          const ex      = EXERCISES[key];
+          const current = getIncrementEvery(key);
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <span className="flex-1 text-sm">{ex.name}</span>
+              <div className="flex bg-gray-800 rounded-lg p-0.5 gap-0.5">
+                {INCREMENT_EVERY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => updateSettings({ incrementEvery: { [key]: opt } })}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                      current === opt
+                        ? 'bg-orange-500 text-white'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {frequencyLabel(opt)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        <p className="text-xs text-gray-600">
+          Failures are unaffected: three in a row still deloads by 10%.
+        </p>
+      </section>
+
       {/* Available plates */}
       <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
         <h2 className="font-semibold text-gray-300">Available Plates</h2>
@@ -375,69 +395,6 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
             </div>
           );
         })}
-      </section>
-
-      {/* Rest timer alerts */}
-      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
-        <div>
-          <h2 className="font-semibold text-gray-300">Rest Timer Alerts</h2>
-          <p className="text-xs text-gray-600 mt-0.5">
-            Reach you when the app isn't open — a notification and a beep at the end of your rest.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="flex-1 text-sm text-gray-400">Notify when rest ends</span>
-          <button
-            onClick={toggleNotifications}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              notifications.enabled
-                ? 'bg-orange-500/20 border-orange-500 text-orange-400'
-                : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {notifications.enabled ? 'On' : 'Off'}
-          </button>
-        </div>
-        <div className="text-xs text-gray-600">{notifyStatus()}</div>
-
-        <div className="flex items-center gap-3">
-          <span className="flex-1 text-sm text-gray-400">Beep at the end</span>
-          <button
-            onClick={() => updateSettings({ notifications: { sound: !notifications.sound } })}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              notifications.sound
-                ? 'bg-orange-500/20 border-orange-500 text-orange-400'
-                : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {notifications.sound ? 'On' : 'Off'}
-          </button>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="flex-1 text-sm text-gray-400">
-            Keep timer running in background
-            <span className="block text-xs text-gray-600">
-              Plays silent audio so the count survives a screen lock. Costs a little battery.
-            </span>
-          </span>
-          <button
-            onClick={() => updateSettings({ notifications: { keepAwake: !notifications.keepAwake } })}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              notifications.keepAwake
-                ? 'bg-orange-500/20 border-orange-500 text-orange-400'
-                : 'bg-gray-800 border-gray-700 text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {notifications.keepAwake ? 'On' : 'Off'}
-          </button>
-        </div>
-
-        <p className="text-xs text-gray-600">
-          Best effort: iOS can still suspend the app, and then the alert arrives when you next open it.
-          This is a notification, not an alarm — it follows your ringer and Focus settings.
-        </p>
       </section>
 
       {/* Bar weight */}

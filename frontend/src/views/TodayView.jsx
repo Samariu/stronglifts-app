@@ -1,13 +1,13 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   EXERCISES, getWorkoutExercises, getSetsReps,
-  computeNextWeight, countConsecutiveFailures, formatPlates, getRestSeconds,
+  computeNextWeight, countConsecutiveFailures, countSuccessesAtWeight,
+  formatPlates, getRestSeconds,
   deload, bestLoggedWeight,
 } from '../lib/program';
 import { getActiveProgram, ACCESSORIES } from '../lib/programs';
 import { getUnitProfile, formatWeight } from '../lib/units';
 import { makeSessionId } from '../lib/db';
-import { unlockAudio } from '../lib/audio';
 import WarmupCard from '../components/WarmupCard';
 
 // Label colors for the workout switcher / next-up, by position in the cycle.
@@ -52,6 +52,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
       return computeNextWeight(
         pastSessions, key, settings.weights?.[key] ?? 20, increment,
         getActiveProgram(settings), getUnitProfile(settings).roundStep,
+        settings.incrementEvery?.[key] ?? 1,
       );
     },
     [pastSessions, settings],
@@ -146,11 +147,6 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
 
   const logSet = useCallback(
     async (exerciseKey, completed) => {
-      // Prime the timer's audio while we're still inside the tap handler —
-      // iOS only grants background playback to elements unlocked by a gesture,
-      // and the `await persist(...)` below ends that window.
-      unlockAudio();
-
       const acc = accessoryByKey[exerciseKey];
       const total = acc ? acc.sets : getSetsReps(exerciseKey, program).sets;
       const current = setResults[exerciseKey]?.sets ?? [];
@@ -196,7 +192,6 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
 
   const logExtraSet = useCallback(
     async (exerciseKey) => {
-      unlockAudio(); // same gesture-window reason as logSet
       const current = setResults[exerciseKey]?.sets ?? [];
       const updated = {
         ...setResults,
@@ -217,6 +212,31 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
     for (const key of exercises) result[key] = countConsecutiveFailures(pastSessions, key, program);
     return result;
   }, [pastSessions, exercises, program]);
+
+  // Progress toward the next weight increase, for exercises held back to every
+  // 2nd/3rd/… workout. Only meaningful while today's weight still matches the
+  // last one logged — right after an increase the count starts over.
+  const holds = useMemo(() => {
+    const result = {};
+    for (const key of exercises) {
+      const every = settings.incrementEvery?.[key] ?? 1;
+      if (every <= 1) { result[key] = null; continue; }
+
+      const previous = [...pastSessions]
+        .filter((s) => s.exercises && key in s.exercises)
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .pop();
+      const lastWeight = previous?.exercises?.[key]?.weight;
+      const sameWeight = lastWeight != null
+        && Math.abs(lastWeight - workingWeights[key]) < 1e-6;
+
+      result[key] = {
+        every,
+        done: sameWeight ? countSuccessesAtWeight(pastSessions, key, program) : 0,
+      };
+    }
+    return result;
+  }, [pastSessions, exercises, program, settings.incrementEvery, workingWeights]);
 
   // All-time best logged weight per exercise — today's weight above it is a PR.
   const bestWeights = useMemo(() => {
@@ -310,6 +330,7 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
         const done       = setResults[key]?.sets ?? [];
         const isComplete = done.length >= totalSets;
         const f          = failures[key];
+        const hold       = holds[key];
 
         const restSecs = getRestSeconds(settings.restTimers, key);
 
@@ -334,6 +355,14 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
                     {bestWeights[key] !== null && weight > bestWeights[key] && (
                       <span className="text-xs bg-yellow-900/40 text-yellow-400 px-2 py-0.5 rounded-full">
                         🏆 PR
+                      </span>
+                    )}
+                    {hold && f === 0 && (
+                      <span className="text-xs bg-blue-900/40 text-blue-400 px-2 py-0.5 rounded-full">
+                        {hold.done + 1} of {hold.every}
+                        {hold.done + 1 >= hold.every
+                          ? ` · +${formatWeight(settings.increments?.[key] ?? EXERCISES[key]?.increment ?? 2.5, unit)} next`
+                          : ' at this weight'}
                       </span>
                     )}
                     {f > 0 && (

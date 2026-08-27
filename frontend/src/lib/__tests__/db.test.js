@@ -77,21 +77,22 @@ describe('migrateSettings', () => {
     expect(settings.weights.squat).toBe(20);
   });
 
-  it('backfills the rest-timer alert settings on legacy data', () => {
+  it('defaults legacy data to increasing the weight every workout', () => {
     const { settings, changed } = migrateSettings({
       program: '5x5',
       accessories: {},
       restTimers: DEFAULT_SETTINGS.restTimers,
     });
     expect(changed).toBe(true);
-    expect(settings.notifications).toEqual(DEFAULT_SETTINGS.notifications);
+    expect(settings.incrementEvery).toEqual(DEFAULT_SETTINGS.incrementEvery);
   });
 
-  it('keeps alert settings the user has already chosen', () => {
+  it('keeps an increase frequency the user has already chosen', () => {
     const { settings } = migrateSettings({
       ...DEFAULT_SETTINGS,
-      notifications: { enabled: true, sound: false, keepAwake: true },
+      incrementEvery: { ...DEFAULT_SETTINGS.incrementEvery, squat: 3 },
     });
-    expect(settings.notifications).toEqual({ enabled: true, sound: false, keepAwake: true });
+    expect(settings.incrementEvery.squat).toBe(3);
+    expect(settings.incrementEvery.benchPress).toBe(1);
   });
 });
