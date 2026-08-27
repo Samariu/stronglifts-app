@@ -76,4 +76,23 @@ describe('migrateSettings', () => {
     // existing values are preserved
     expect(settings.weights.squat).toBe(20);
   });
+
+  it('defaults legacy data to increasing the weight every workout', () => {
+    const { settings, changed } = migrateSettings({
+      program: '5x5',
+      accessories: {},
+      restTimers: DEFAULT_SETTINGS.restTimers,
+    });
+    expect(changed).toBe(true);
+    expect(settings.incrementEvery).toEqual(DEFAULT_SETTINGS.incrementEvery);
+  });
+
+  it('keeps an increase frequency the user has already chosen', () => {
+    const { settings } = migrateSettings({
+      ...DEFAULT_SETTINGS,
+      incrementEvery: { ...DEFAULT_SETTINGS.incrementEvery, squat: 3 },
+    });
+    expect(settings.incrementEvery.squat).toBe(3);
+    expect(settings.incrementEvery.benchPress).toBe(1);
+  });
 });

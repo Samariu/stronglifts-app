@@ -14,6 +14,7 @@ import {
   deload,
   exerciseSucceeded,
   countConsecutiveFailures,
+  countSuccessesAtWeight,
   computeNextWeight,
   getPlatesPerSide,
   formatPlates,
@@ -330,6 +331,103 @@ describe('computeNextWeight', () => {
       makeSession('2026-01-03', 'B', 'overheadPress', 40, 5, 5), // no bench after
     ];
     expect(computeNextWeight(sessions, 'benchPress', 20)).toBe(62.5);
+  });
+
+  // ---- increase frequency (hold a weight for N successful workouts) --------
+
+  it('holds the weight until it has been cleared the required number of times', () => {
+    const every3 = (sessions) =>
+      computeNextWeight(sessions, 'squat', 20, 2.5, undefined, 2.5, 3);
+
+    const first  = [makeSession('2026-01-01', 'A', 'squat', 100, 5, 5)];
+    const second = [...first,  makeSession('2026-01-03', 'A', 'squat', 100, 5, 5)];
+    const third  = [...second, makeSession('2026-01-05', 'A', 'squat', 100, 5, 5)];
+
+    expect(every3(first)).toBe(100);   // 1 of 3 — hold
+    expect(every3(second)).toBe(100);  // 2 of 3 — hold
+    expect(every3(third)).toBe(102.5); // 3 of 3 — go up
+  });
+
+  it('restarts the count after the weight goes up', () => {
+    const sessions = [
+      makeSession('2026-01-01', 'A', 'squat', 100, 5, 5),
+      makeSession('2026-01-03', 'A', 'squat', 100, 5, 5),
+      makeSession('2026-01-05', 'A', 'squat', 102.5, 5, 5), // first at the new weight
+    ];
+    expect(computeNextWeight(sessions, 'squat', 20, 2.5, undefined, 2.5, 3)).toBe(102.5);
+  });
+
+  it('restarts the count after a failure breaks the streak', () => {
+    const sessions = [
+      makeSession('2026-01-01', 'A', 'squat', 100, 5, 5),
+      makeSession('2026-01-03', 'A', 'squat', 100, 5, 5),
+      makeSession('2026-01-05', 'A', 'squat', 100, 4, 5), // failed
+      makeSession('2026-01-07', 'A', 'squat', 100, 5, 5), // 1 of 3 again
+    ];
+    expect(computeNextWeight(sessions, 'squat', 20, 2.5, undefined, 2.5, 3)).toBe(100);
+  });
+
+  it('still deloads after three failures regardless of the frequency', () => {
+    const sessions = [
+      makeSession('2026-01-01', 'A', 'squat', 100, 4, 5),
+      makeSession('2026-01-03', 'A', 'squat', 100, 4, 5),
+      makeSession('2026-01-05', 'A', 'squat', 100, 4, 5),
+    ];
+    expect(computeNextWeight(sessions, 'squat', 20, 2.5, undefined, 2.5, 3)).toBe(90);
+  });
+
+  it('behaves exactly like linear progression at a frequency of 1', () => {
+    const sessions = [makeSession('2026-01-01', 'A', 'squat', 100, 5, 5)];
+    expect(computeNextWeight(sessions, 'squat', 20, 2.5, undefined, 2.5, 1))
+      .toBe(computeNextWeight(sessions, 'squat', 20));
+  });
+
+  it('treats a missing or nonsensical frequency as every workout', () => {
+    const sessions = [makeSession('2026-01-01', 'A', 'squat', 100, 5, 5)];
+    expect(computeNextWeight(sessions, 'squat', 20, 2.5, undefined, 2.5, 0)).toBe(102.5);
+    expect(computeNextWeight(sessions, 'squat', 20, 2.5, undefined, 2.5, undefined)).toBe(102.5);
+  });
+});
+
+// =========================================================================
+// countSuccessesAtWeight
+// =========================================================================
+describe('countSuccessesAtWeight', () => {
+  it('returns zero without history', () => {
+    expect(countSuccessesAtWeight([], 'squat')).toBe(0);
+  });
+
+  it('counts consecutive successes at the most recent weight', () => {
+    const sessions = [
+      makeSession('2026-01-01', 'A', 'squat', 100, 5, 5),
+      makeSession('2026-01-03', 'A', 'squat', 100, 5, 5),
+    ];
+    expect(countSuccessesAtWeight(sessions, 'squat')).toBe(2);
+  });
+
+  it('stops at a weight change', () => {
+    const sessions = [
+      makeSession('2026-01-01', 'A', 'squat', 97.5, 5, 5),
+      makeSession('2026-01-03', 'A', 'squat', 100, 5, 5),
+    ];
+    expect(countSuccessesAtWeight(sessions, 'squat')).toBe(1);
+  });
+
+  it('is zero when the latest session failed', () => {
+    const sessions = [
+      makeSession('2026-01-01', 'A', 'squat', 100, 5, 5),
+      makeSession('2026-01-03', 'A', 'squat', 100, 4, 5),
+    ];
+    expect(countSuccessesAtWeight(sessions, 'squat')).toBe(0);
+  });
+
+  it('ignores workouts that do not contain the exercise', () => {
+    const sessions = [
+      makeSession('2026-01-01', 'A', 'benchPress', 60, 5, 5),
+      makeSession('2026-01-03', 'B', 'overheadPress', 40, 5, 5),
+      makeSession('2026-01-05', 'A', 'benchPress', 60, 5, 5),
+    ];
+    expect(countSuccessesAtWeight(sessions, 'benchPress')).toBe(2);
   });
 });
 

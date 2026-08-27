@@ -96,9 +96,36 @@ export const countConsecutiveFailures = (sessions, exerciseKey, program) => {
   return count;
 };
 
+// Successful workouts in a row at the weight last used for an exercise. Resets
+// on a failure or on any weight change (including a deload), so it answers
+// "how many times have I now cleared *this* weight?".
+// Weights are compared with a tolerance: the lb profile stores exact kg values
+// that don't land on clean decimals.
+export const countSuccessesAtWeight = (sessions, exerciseKey, program) => {
+  const relevant = sessions
+    .filter((s) => s.exercises && exerciseKey in s.exercises)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (relevant.length === 0) return 0;
+
+  const weightOf   = (s) => s.exercises?.[exerciseKey]?.weight;
+  const lastWeight = weightOf(relevant[relevant.length - 1]);
+
+  let count = 0;
+  for (let i = relevant.length - 1; i >= 0; i--) {
+    const w = weightOf(relevant[i]);
+    if (w == null || Math.abs(w - lastWeight) > 1e-6) break;
+    if (!exerciseSucceeded(relevant[i], exerciseKey, program)) break;
+    count++;
+  }
+  return count;
+};
+
 // Compute the working weight for the next session from history.
 // Pass a custom increment to override the exercise default (e.g., from settings.increments),
 // and a program so success is judged against the right set/rep scheme.
+// `incrementEvery` is how many successful workouts at a weight are needed before
+// it goes up — 1 is classic linear progression, 3 is "add weight every 3rd time".
 export const computeNextWeight = (
   sessions,
   exerciseKey,
@@ -106,6 +133,7 @@ export const computeNextWeight = (
   increment = EXERCISES[exerciseKey]?.increment ?? 2.5,
   program,
   roundStep = 2.5,
+  incrementEvery = 1,
 ) => {
   const relevant = sessions
     .filter((s) => s.exercises && exerciseKey in s.exercises)
@@ -118,9 +146,14 @@ export const computeNextWeight = (
 
   const failures = countConsecutiveFailures(sessions, exerciseKey, program);
 
-  if (failures >= 3)                                 return deload(lastWeight, roundStep);
-  if (exerciseSucceeded(last, exerciseKey, program)) return lastWeight + increment;
-  return lastWeight;
+  if (failures >= 3) return deload(lastWeight, roundStep);
+  if (!exerciseSucceeded(last, exerciseKey, program)) return lastWeight;
+
+  // Hold the weight until it has been cleared `every` times in a row.
+  const every = Math.max(1, Math.round(incrementEvery || 1));
+  if (countSuccessesAtWeight(relevant, exerciseKey, program) < every) return lastWeight;
+
+  return lastWeight + increment;
 };
 
 // Heaviest weight ever logged for an exercise with at least one completed set.

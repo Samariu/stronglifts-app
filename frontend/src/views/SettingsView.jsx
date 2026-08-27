@@ -9,6 +9,10 @@ import { exportBackupFile, parseBackup } from '../lib/backup';
 /* eslint-disable no-undef */
 const APP_VERSION = __APP_VERSION__;
 
+// Successful workouts required at a weight before it goes up.
+const INCREMENT_EVERY_OPTIONS = [1, 2, 3, 4];
+const frequencyLabel = (n) => (n === 1 ? 'Every' : `${n}${n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`);
+
 export default function SettingsView({ settings, sessions, updateSettings, upsertSession, needRefresh, updateServiceWorker, checkForUpdate }) {
   const [backendUrl, setBackendUrl] = useState(settings.backendUrl ?? '');
   const [saved, setSaved] = useState(false);
@@ -54,11 +58,15 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
   const unit         = unitProfile.unit;
 
   const getIncrement = (key) => increments[key] ?? EXERCISES[key]?.increment ?? 2.5;
+  const getIncrementEvery = (key) => settings.incrementEvery?.[key] ?? 1;
 
   const currentWeight = (key) => {
     const override = settings.nextWeightOverrides?.[key];
     if (override != null) return override;
-    return computeNextWeight(sessions, key, settings.weights[key] ?? 20, getIncrement(key), program, unitProfile.roundStep);
+    return computeNextWeight(
+      sessions, key, settings.weights[key] ?? 20, getIncrement(key),
+      program, unitProfile.roundStep, getIncrementEvery(key),
+    );
   };
 
   const switchUnit = (nextUnit) => {
@@ -297,6 +305,44 @@ export default function SettingsView({ settings, sessions, updateSettings, upser
             </div>
           );
         })}
+      </section>
+
+      {/* Increase frequency */}
+      <section className="bg-gray-900 rounded-2xl p-4 space-y-3">
+        <div>
+          <h2 className="font-semibold text-gray-300">Increase Frequency</h2>
+          <p className="text-xs text-gray-600 mt-0.5">
+            How many successful workouts at a weight before it goes up. Slow this down when
+            adding weight every session stops working.
+          </p>
+        </div>
+        {exerciseKeys.map((key) => {
+          const ex      = EXERCISES[key];
+          const current = getIncrementEvery(key);
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <span className="flex-1 text-sm">{ex.name}</span>
+              <div className="flex bg-gray-800 rounded-lg p-0.5 gap-0.5">
+                {INCREMENT_EVERY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => updateSettings({ incrementEvery: { [key]: opt } })}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                      current === opt
+                        ? 'bg-orange-500 text-white'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {frequencyLabel(opt)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        <p className="text-xs text-gray-600">
+          Failures are unaffected: three in a row still deloads by 10%.
+        </p>
       </section>
 
       {/* Available plates */}

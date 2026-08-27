@@ -50,6 +50,12 @@ Adding a program is mostly a declarative entry in `PROGRAMS`.
 - Weight progression: +increment on success; 3 consecutive failures triggers a 10%
   deload. Progression keys off what a session **actually contains**
   (`Object.keys(session.exercises)`), so it stays correct across program switches.
+- **Increase frequency**: `settings.incrementEvery[key]` (default 1) is how many
+  successful workouts at a weight are needed before it goes up — 1 is classic
+  linear progression, 3 holds the weight for three clean sessions first.
+  `countSuccessesAtWeight` counts the streak at the last logged weight (reset by a
+  failure or any weight change, deloads included) and `computeNextWeight` takes the
+  frequency as its last optional parameter. Deloads are unaffected.
 - **History model**: one active global program with a shared timeline; each session
   is also stamped with an (invisible) `program` tag for future per-program features.
 - **Accessories** (`ACCESSORIES`): optional assistance work enabled per workout in
@@ -112,6 +118,7 @@ Run it with `npm run backend` from the repo root; it listens on port 3001. Set `
   weights:    { [exerciseKey]: number },  // starting weights (incl. bench variations)
   restTimers: { [exerciseKey]: number },  // seconds per exercise (legacy { upper, lower } migrated)
   increments: { [exerciseKey]: number },  // per-exercise progression step
+  incrementEvery: { [exerciseKey]: number },  // successful workouts per increase; 1 = every time
   rom:        { [exerciseKey]: number },  // range of motion (m), for Stats energy/distance
   accessories: { [workoutLabel]: [{ key, sets, weight }] },  // enabled assistance work
   setupComplete: boolean,      // gates SetupWizard — false on first launch

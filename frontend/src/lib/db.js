@@ -91,6 +91,17 @@ export const DEFAULT_SETTINGS = {
     inclineBench: 2.5,
     closeGripBench: 2.5,
   },
+  // How many successful workouts at a weight before it goes up.
+  // 1 = classic linear progression; 3 = "add weight every 3rd time".
+  incrementEvery: {
+    squat: 1,
+    benchPress: 1,
+    barbellRow: 1,
+    overheadPress: 1,
+    deadlift: 1,
+    inclineBench: 1,
+    closeGripBench: 1,
+  },
   rom: {
     squat: 0.6,
     benchPress: 0.5,
@@ -123,6 +134,7 @@ export const migrateSettings = (stored) => {
   if (!('accessories' in stored)) changed = true;
   if (!('unit' in stored)) changed = true;
   if (!('scheduleDows' in stored)) changed = true;
+  if (!('incrementEvery' in stored)) changed = true;
 
   // restTimers: legacy { upper, lower } → per-exercise keys
   const rt = stored.restTimers ?? {};
@@ -138,7 +150,7 @@ export const migrateSettings = (stored) => {
 
   // Backfill any per-exercise maps that predate newly added exercises
   // (e.g. the Intermediate bench variations) without disturbing user values.
-  for (const mapKey of ['weights', 'restTimers', 'increments', 'rom']) {
+  for (const mapKey of ['weights', 'restTimers', 'increments', 'incrementEvery', 'rom']) {
     const current  = settings[mapKey] ?? {};
     const defaults = DEFAULT_SETTINGS[mapKey];
     const filled   = { ...current };
