@@ -63,6 +63,13 @@ Adding a program is mostly a declarative entry in `PROGRAMS`.
   from progression / completion / barbell stats (`isAccessory` / `isBarbell`).
 - Warmup is always exactly 5 sets × 5 reps, ramping to the working weight using only
   5 kg+ plates (no small-plate reloads); repeated ramp weights are kept as separate sets.
+  Squat/Bench/OHP open with two empty-bar sets; Deadlift and Row start from the floor
+  and get five ramp sets instead.
+- **Ramp-up tracking**: warmup sets are ticked off one at a time in `WarmupCard`, and
+  progress is *deliberately ephemeral* — a `{ [exerciseKey]: completedCount }` map in
+  `sessionStorage` keyed by the day. Warmups never enter `session.exercises`, so they
+  stay out of progression, stats, backup, CSV and sync. Per the StrongLifts protocol
+  there is no rest between warmup sets, so only the *last* one starts the rest timer.
 
 **Units** (`lib/units.js`): all weights are **stored in kg**, always. `settings.unit`
 (`'kg' | 'lb'`) only changes the display/input edges plus the "hardware" defaults —

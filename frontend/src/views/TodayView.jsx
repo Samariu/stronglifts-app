@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   EXERCISES, getWorkoutExercises, getSetsReps,
   computeNextWeight, countConsecutiveFailures, countSuccessesAtWeight,
-  formatPlates, getRestSeconds,
+  formatPlates, getRestSeconds, getWarmupSets,
   deload, bestLoggedWeight,
 } from '../lib/program';
 import { getActiveProgram, ACCESSORIES } from '../lib/programs';
@@ -17,12 +17,17 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export default function TodayView({ sessions, settings, upsertSession, updateSettings, onStartTimer }) {
   const [expandedWarmup, setExpandedWarmup] = useState(null);
-  const WARMUP_KEY = `warmupDone-${new Date().toISOString().slice(0, 10)}`;
-  const [warmupDone, setWarmupDone] = useState(() => {
+  // Ramp-up progress: { [exerciseKey]: completed warmup sets }. Deliberately
+  // ephemeral — warmups never enter the session record, so this lives in
+  // sessionStorage keyed by the day and is gone tomorrow.
+  const WARMUP_KEY = `warmupSets-${todayStr()}`;
+  const [warmupProgress, setWarmupProgress] = useState(() => {
     try {
-      const s = sessionStorage.getItem(`warmupDone-${new Date().toISOString().slice(0, 10)}`);
-      return new Set(s ? JSON.parse(s) : []);
-    } catch { return new Set(); }
+      const raw = sessionStorage.getItem(`warmupSets-${todayStr()}`);
+      const parsed = raw ? JSON.parse(raw) : null;
+      // Guard against the legacy `warmupDone-` array shape and any other junk.
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch { return {}; }
   });
   const [typeOverride, setTypeOverride] = useState(null);
   const [showSets, setShowSets] = useState(false);
@@ -89,6 +94,52 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
     }
     return result;
   }, [exercises, existingSession, settings.nextWeightOverrides, nextWeightFor]);
+
+  // The ramp for each exercise. Computed here rather than inside WarmupCard so
+  // the collapsed header can show "3/5" without duplicating the calculation.
+  const warmupSetsByKey = useMemo(() => {
+    const result = {};
+    for (const key of exercises) {
+      result[key] = getWarmupSets(
+        workingWeights[key],
+        settings.barWeight,
+        settings.availablePlates,
+        // Deadlift and Row start from the floor, so they get no empty-bar sets.
+        key !== 'deadlift' && key !== 'barbellRow',
+        getUnitProfile(settings).minWarmupPlate,
+      );
+    }
+    return result;
+  }, [exercises, workingWeights, settings]);
+
+  // Absolute count setter rather than an incrementer: the callers already have
+  // the current count in hand, which keeps these callbacks from closing over
+  // warmupProgress.
+  const setWarmupCount = useCallback((key, count) => {
+    setWarmupProgress((prev) => {
+      const next = { ...prev, [key]: count };
+      try { sessionStorage.setItem(WARMUP_KEY, JSON.stringify(next)); } catch { /* sessionStorage unavailable — warmup progress stays in memory only */ }
+      return next;
+    });
+  }, [WARMUP_KEY]);
+
+  // Finishing the ramp collapses the card and starts the rest timer.
+  const endWarmup = useCallback((key) => {
+    setExpandedWarmup(null);
+    onStartTimer(getRestSeconds(settings.restTimers, key));
+  }, [onStartTimer, settings.restTimers]);
+
+  const logWarmupSet = useCallback((key, count, total) => {
+    setWarmupCount(key, count);
+    // StrongLifts prescribes no rest *between* warmup sets — only the last one
+    // starts the timer, then you rest before the working sets.
+    if (count >= total) endWarmup(key);
+  }, [setWarmupCount, endWarmup]);
+
+  const skipWarmup = useCallback((key, total) => {
+    setWarmupCount(key, total);
+    endWarmup(key);
+  }, [setWarmupCount, endWarmup]);
 
   const [setResults, setSetResults] = useState(() => {
     if (existingSession) return existingSession.exercises ?? {};
@@ -332,7 +383,9 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
         const f          = failures[key];
         const hold       = holds[key];
 
-        const restSecs = getRestSeconds(settings.restTimers, key);
+        const warmupSets = warmupSetsByKey[key] ?? [];
+        const warmupN    = Math.min(warmupProgress[key] ?? 0, warmupSets.length);
+        const warmedUp   = warmupSets.length > 0 && warmupN >= warmupSets.length;
 
         return (
           <div
@@ -376,41 +429,39 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
                     {formatPlates(weight, settings.barWeight, settings.availablePlates, unit)}
                   </div>
                 </div>
-                <button
-                  onClick={() =>
-                    !warmupDone.has(key) && setExpandedWarmup(expandedWarmup === key ? null : key)
-                  }
-                  disabled={warmupDone.has(key)}
-                  className={`text-xs mt-1 px-2 py-1 rounded-lg shrink-0 transition-colors ${
-                    warmupDone.has(key)
-                      ? 'bg-green-900/50 text-green-500 cursor-default'
-                      : 'text-gray-500 hover:text-gray-300 bg-gray-800'
-                  }`}
-                >
-                  {warmupDone.has(key) ? 'Warmed up ✓' : 'Warmup'}
-                </button>
+                {warmupSets.length > 0 && (
+                  <button
+                    onClick={() => setExpandedWarmup(expandedWarmup === key ? null : key)}
+                    className={`text-xs mt-1 px-2 py-1 rounded-lg shrink-0 transition-colors ${
+                      warmedUp
+                        ? 'bg-green-900/50 text-green-500 hover:bg-green-900/70'
+                        : warmupN > 0
+                        ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30'
+                        : 'text-gray-500 hover:text-gray-300 bg-gray-800'
+                    }`}
+                  >
+                    {warmedUp
+                      ? 'Warmed up ✓'
+                      : warmupN > 0
+                      ? `Warmup ${warmupN}/${warmupSets.length}`
+                      : 'Warmup'}
+                  </button>
+                )}
               </div>
 
               {expandedWarmup === key && (
                 <div className="mt-3">
                   <WarmupCard
+                    sets={warmupSets}
                     workingWeight={weight}
                     workLabel={`${totalSets}×${reps}`}
                     barWeight={settings.barWeight}
                     availablePlates={settings.availablePlates}
-                    includeBarSets={key !== 'deadlift' && key !== 'barbellRow'}
                     unit={unit}
-                    minWarmupPlate={unitProfile.minWarmupPlate}
-                    restSeconds={restSecs}
-                    onStartWorkingSets={(secs) => {
-                      setExpandedWarmup(null);
-                      setWarmupDone((prev) => {
-                        const next = new Set([...prev, key]);
-                        try { sessionStorage.setItem(WARMUP_KEY, JSON.stringify([...next])); } catch { /* sessionStorage unavailable — warmup state stays in memory only */ }
-                        return next;
-                      });
-                      onStartTimer(secs);
-                    }}
+                    completedCount={warmupN}
+                    onLogSet={() => logWarmupSet(key, warmupN + 1, warmupSets.length)}
+                    onUndoSet={() => setWarmupCount(key, Math.max(0, warmupN - 1))}
+                    onSkip={() => skipWarmup(key, warmupSets.length)}
                   />
                 </div>
               )}
