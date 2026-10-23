@@ -215,20 +215,139 @@ export const formatPlates = (targetWeight, barWeight = 20, availablePlates = ALL
   return Object.entries(counts).map(([p, c]) => `${c}×${label(Number(p))}`).join(' + ');
 };
 
-// Warmup sets following the StrongLifts protocol — ALWAYS exactly 5 sets × 5 reps:
-//   - Squat / Bench / OHP (includeBarSets=true):  2 × empty bar, then 3 ramp sets
-//   - Deadlift / Barbell Row (includeBarSets=false): 5 ramp sets
-// Ramp steps are evenly spaced between bar and working weight, snapped to whole
-// 5 kg+ plates only (no reloading the bar with tiny 1.25/2.5 kg plates). When two
-// ramp steps snap to the same weight they are kept as separate sets — the set
-// count stays 5, you just don't change the bar between them.
-export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES, includeBarSets = true, minWarmupPlate = 5) => {
+// --- Warmup ----------------------------------------------------------------
+
+// Where the Deadlift ramp aims to start, as a fraction of the working weight,
+// before being clamped to the loadable floor band below. Taken from StrongLifts'
+// own worked example: a 355 lb pull starts at 135 lb (38%).
+const RAMP_START_FRACTION = 0.4;
+
+// Hard ceiling on warmup sets. Past this the jumps simply get bigger — a very
+// heavy pull shouldn't produce a ten-set warmup.
+export const WARMUP_MAX_SETS = 6;
+
+// Ramp options for an exercise, or null when it uses the classic fixed warmup.
+// Deadlift only for now; the ramp algorithm handles bar-start lifts too, so
+// moving another exercise onto it is a one-line change here.
+export const getWarmupRamp = (exerciseKey, profile) =>
+  exerciseKey === 'deadlift'
+    ? {
+        maxStep:  profile?.warmupMaxStep  ?? 20,
+        floorMin: profile?.warmupFloorMin ?? 30,
+        floorMax: profile?.warmupFloorMax ?? 60,
+        maxSets:  WARMUP_MAX_SETS,
+      }
+    : null;
+
+// Every weight loadable on the bar with `plates` (unlimited pairs), up to `max`.
+// Ramp weights snap onto this rather than onto an arithmetic grid because lb
+// denominations (45/35/25/10) aren't evenly spaced — a fixed step would produce
+// weights you can't actually load.
+const loadableWeights = (barWeight, max, plates) => {
+  const perSide = (max - barWeight) / 2;
+  // Keyed on a rounded value to dedupe, but the exact sum is what's kept: lb
+  // plates are stored as inexact kg, and rounding them would blur the exact
+  // ties that snapToLoadable relies on.
+  const sums = new Map([[0, 0]]);
+  if (perSide > 0) {
+    const stack = [0];
+    while (stack.length) {
+      const sum = stack.pop();
+      for (const plate of plates) {
+        const next = sum + plate;
+        const key  = Math.round(next * 1e6);
+        if (next <= perSide + 1e-9 && !sums.has(key)) {
+          sums.set(key, next);
+          stack.push(next);
+        }
+      }
+    }
+  }
+  return [...sums.values()].sort((a, b) => a - b).map((sum) => barWeight + 2 * sum);
+};
+
+// Nearest loadable weight to `raw`, ties rounding up — which is what reproduces
+// StrongLifts' published 225 lb squat ramp, where 90 and 180 become 95 and 185.
+const snapToLoadable = (raw, candidates) => {
+  let best = candidates[0];
+  for (const weight of candidates) {
+    const delta = Math.abs(weight - raw) - Math.abs(best - raw);
+    if (delta < -1e-9 || (Math.abs(delta) < 1e-9 && weight > best)) best = weight;
+  }
+  return best;
+};
+
+// Progressive "ramp up" warmup, reconstructed from the StrongLifts warmup
+// calculator. The jump between sets is capped (20 kg / 45 lb), so the NUMBER of
+// sets scales with the working weight instead of being fixed — which is the
+// whole point of their calculator: the warmup for a 225 lb squat isn't the same
+// as for a 300 lb one. Reps stay at 5 throughout.
+//
+// Reproduces StrongLifts' own published example exactly: a 225 lb squat gives
+// 45, 45, 95, 135, 185 lb. See the tests.
+const getRampWarmupSets = (workingWeight, barWeight, plates, includeBarSets, ramp) => {
+  const { maxStep, floorMin, floorMax, maxSets = WARMUP_MAX_SETS } = ramp;
+
+  const loadable = loadableWeights(barWeight, workingWeight, plates);
+
+  // Squat/Bench/OHP start on the empty bar. Deadlift and Row need the plates to
+  // reach the floor, so they start partway up, clamped to the band StrongLifts
+  // documents (65-135 lb / 30-60 kg).
+  const start = includeBarSets
+    ? barWeight
+    : snapToLoadable(
+        Math.min(Math.max(workingWeight * RAMP_START_FRACTION, floorMin), floorMax),
+        loadable,
+      );
+
+  // Nothing to ramp through when the work weight is already at the floor.
+  if (workingWeight <= start) return [];
+
+  // A ramp set is never at or above the work weight.
+  const below = loadable.filter((w) => w < workingWeight - 1e-9);
+  if (below.length === 0) return [];
+
+  const span = workingWeight - start;
+  // Enough intervals that no jump exceeds maxStep, bounded by the set cap. The
+  // two empty-bar sets count toward that cap.
+  const room = Math.max(1, includeBarSets ? maxSets - 1 : maxSets);
+  const steps = Math.min(Math.max(1, Math.ceil(span / maxStep - 1e-9)), room);
+
+  const sets = [];
+  if (includeBarSets) {
+    sets.push({ weight: barWeight, reps: 5 });
+    sets.push({ weight: barWeight, reps: 5 });
+  }
+  // i starts at 1 for bar-start lifts because the empty-bar sets already cover i=0.
+  for (let i = includeBarSets ? 1 : 0; i < steps; i++) {
+    sets.push({ weight: snapToLoadable(start + (span * i) / steps, below), reps: 5 });
+  }
+  return sets;
+};
+
+// Warmup sets. Two schemes:
+//
+//   ramp = null (default) — the classic fixed scheme: ALWAYS exactly 5 sets × 5
+//     reps. Squat/Bench/OHP (includeBarSets=true) open with 2 empty-bar sets then
+//     3 ramp sets; Deadlift/Row (includeBarSets=false) get 5 ramp sets. Steps are
+//     evenly spaced and snapped to whole 5 kg+ plates; when two steps snap to the
+//     same weight they are kept as separate sets.
+//
+//   ramp = { maxStep, floorMin, floorMax, maxSets } — the progressive ramp
+//     reconstructed from the StrongLifts warmup calculator, where the set count
+//     scales with the load. Currently wired up for the Deadlift only
+//     (see getWarmupRamp).
+export const getWarmupSets = (workingWeight, barWeight = 20, availablePlates = ALL_PLATE_SIZES, includeBarSets = true, minWarmupPlate = 5, ramp = null) => {
   if (workingWeight <= barWeight) return [];
 
   // Warmups round to whole full-size plates; small plates (2.5/1.25 kg or
   // 2.5/5 lb) are skipped. The lb profile passes its own threshold.
   const warmupPlates  = availablePlates.filter((p) => p >= minWarmupPlate);
-  const smallestPlate = Math.min(...(warmupPlates.length ? warmupPlates : availablePlates));
+  const plates        = warmupPlates.length ? warmupPlates : availablePlates;
+
+  if (ramp) return getRampWarmupSets(workingWeight, barWeight, plates, includeBarSets, ramp);
+
+  const smallestPlate = Math.min(...plates);
   const step = smallestPlate * 2;
 
   // Snap a raw weight to a 5 kg+ plate increment, kept between bar and working weight.

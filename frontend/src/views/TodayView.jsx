@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   EXERCISES, getWorkoutExercises, getSetsReps,
   computeNextWeight, countConsecutiveFailures, countSuccessesAtWeight,
-  formatPlates, getRestSeconds, getWarmupSets,
+  formatPlates, getRestSeconds, getWarmupSets, getWarmupRamp,
   deload, bestLoggedWeight,
 } from '../lib/program';
 import { getActiveProgram, ACCESSORIES } from '../lib/programs';
@@ -107,6 +107,8 @@ export default function TodayView({ sessions, settings, upsertSession, updateSet
         // Deadlift and Row start from the floor, so they get no empty-bar sets.
         key !== 'deadlift' && key !== 'barbellRow',
         getUnitProfile(settings).minWarmupPlate,
+        // Deadlift uses the progressive ramp; everything else keeps the fixed 5 sets.
+        getWarmupRamp(key, getUnitProfile(settings)),
       );
     }
     return result;

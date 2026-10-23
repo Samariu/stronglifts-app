@@ -61,10 +61,21 @@ Adding a program is mostly a declarative entry in `PROGRAMS`.
 - **Accessories** (`ACCESSORIES`): optional assistance work enabled per workout in
   Settings, stored in `session.exercises` flagged `accessory: true`, and excluded
   from progression / completion / barbell stats (`isAccessory` / `isBarbell`).
-- Warmup is always exactly 5 sets × 5 reps, ramping to the working weight using only
-  5 kg+ plates (no small-plate reloads); repeated ramp weights are kept as separate sets.
-  Squat/Bench/OHP open with two empty-bar sets; Deadlift and Row start from the floor
-  and get five ramp sets instead.
+- **Warmups** come in two schemes, both 5 reps per set, selected by the `ramp`
+  argument to `getWarmupSets` (see `getWarmupRamp`):
+  - *Fixed* (Squat/Bench/OHP/Row, `ramp = null`): always exactly 5 sets, evenly
+    spaced and snapped to whole 5 kg+ plates (no small-plate reloads); repeated
+    ramp weights are kept as separate sets. Squat/Bench/OHP open with two
+    empty-bar sets, Row starts from the floor with five ramp sets.
+  - *Progressive* (Deadlift): reconstructed from the StrongLifts warmup
+    calculator. The jump between sets is capped (`warmupMaxStep` — 20 kg / 45 lb),
+    so the **set count scales with the load** rather than being fixed, bounded by
+    `WARMUP_MAX_SETS`. The ramp starts at 40% of the work weight clamped to the
+    documented floor band (`warmupFloorMin`/`Max` — 30-60 kg / 65-135 lb) so the
+    plates reach the ground. Weights snap to what the lifter's plates can actually
+    load (`loadableWeights`), not to an arithmetic grid, because lb denominations
+    aren't evenly spaced. Tests pin it to StrongLifts' own published example
+    (a 225 lb squat gives 45, 45, 95, 135, 185 lb).
 - **Ramp-up tracking**: warmup sets are ticked off one at a time in `WarmupCard`, and
   progress is *deliberately ephemeral* — a `{ [exerciseKey]: completedCount }` map in
   `sessionStorage` keyed by the day. Warmups never enter `session.exercises`, so they

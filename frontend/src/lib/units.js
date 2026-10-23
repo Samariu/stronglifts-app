@@ -21,6 +21,9 @@ export const UNIT_PROFILES = {
     roundStep: 2.5,                 // deload rounding — smallest per-side pair (2 × 1.25 kg)
     minWarmupPlate: 5,              // warmups load whole 5 kg+ plates only
     minPlatePair: 10,               // Row/Deadlift floor: one plate per side (2 × 5 kg)
+    warmupMaxStep: 20,              // biggest jump between ramp sets (StrongLifts: 10-20 kg)
+    warmupFloorMin: 30,             // Deadlift ramp start band, so the plates reach
+    warmupFloorMax: 60,             // the floor (StrongLifts: 65-135 lb / 30-60 kg)
     incrementOptions: { default: [1.25, 2.5], deadlift: [2.5, 5] },
     barOptions: [15, 20],
     defaultBar: 20,
@@ -32,6 +35,9 @@ export const UNIT_PROFILES = {
     roundStep: lbToKg(5),           // 2 × 2.5 lb
     minWarmupPlate: lbToKg(10) - 1e-9, // 10 lb plates count as warmup plates
     minPlatePair: lbToKg(20),       // 2 × 10 lb
+    warmupMaxStep: lbToKg(45),      // StrongLifts: add 25-45 lb per warmup set
+    warmupFloorMin: lbToKg(65),     // StrongLifts: Deadlifts start at 65-135 lb
+    warmupFloorMax: lbToKg(135),    // so the weight can rest on the floor
     incrementOptions: { default: [lbToKg(2.5), lbToKg(5)], deadlift: [lbToKg(5), lbToKg(10)] },
     barOptions: [lbToKg(35), lbToKg(45)],
     defaultBar: lbToKg(45),

@@ -19,6 +19,8 @@ import {
   getPlatesPerSide,
   formatPlates,
   getWarmupSets,
+  getWarmupRamp,
+  WARMUP_MAX_SETS,
   bestLoggedWeight,
   computeStreak,
 } from '../program.js';
@@ -233,6 +235,112 @@ describe('getWarmupSets', () => {
   it('uses 5 reps on every warmup set', () => {
     const sets = getWarmupSets(100, 20, ALL_PLATE_SIZES, true);
     expect(sets.every((s) => s.reps === 5)).toBe(true);
+  });
+});
+
+// =========================================================================
+// getWarmupSets — progressive ramp (Deadlift)
+// =========================================================================
+describe('getWarmupSets (progressive ramp)', () => {
+  // kg hardware
+  const KG = { bar: 20, plates: ALL_PLATE_SIZES, minPlate: 5 };
+  const kgRamp = { maxStep: 20, floorMin: 30, floorMax: 60, maxSets: WARMUP_MAX_SETS };
+  const rampKg = (w) =>
+    getWarmupSets(w, KG.bar, KG.plates, false, KG.minPlate, kgRamp).map((s) => s.weight);
+
+  // lb hardware, stored as exact kg (mirrors UNIT_PROFILES.lb)
+  const LB = 0.45359237;
+  const lb = (x) => x * LB;
+  const LB_PLATES = [45, 35, 25, 10, 5, 2.5].map(lb);
+  const lbRamp = {
+    maxStep: lb(45), floorMin: lb(65), floorMax: lb(135), maxSets: WARMUP_MAX_SETS,
+  };
+  const rampLb = (workLb, includeBarSets) =>
+    getWarmupSets(lb(workLb), lb(45), LB_PLATES, includeBarSets, lb(10) - 1e-9, lbRamp)
+      .map((s) => Math.round(s.weight / LB));
+
+  // These two are the worked examples StrongLifts publishes for its own warmup
+  // calculator — they are what the reconstruction is fitted to, so they are the
+  // regression test that matters most.
+  it('reproduces the published 225lb squat ramp', () => {
+    expect(rampLb(225, true)).toEqual([45, 45, 95, 135, 185]);
+  });
+
+  it('starts a 355lb deadlift at 135lb, the documented floor cap', () => {
+    expect(rampLb(355, false)[0]).toBe(135);
+  });
+
+  it('scales the set count with the load instead of fixing it at 5', () => {
+    expect(rampKg(60)).toEqual([30, 50]);
+    expect(rampKg(100)).toEqual([40, 60, 80]);
+    expect(rampKg(140)).toEqual([60, 80, 100, 120]);
+    expect(rampKg(180)).toEqual([60, 80, 100, 120, 140, 160]);
+  });
+
+  it('never jumps more than maxStep until the set cap binds', () => {
+    for (const w of [60, 80, 100, 120, 140, 160, 180]) {
+      const steps = [...rampKg(w), w];
+      for (let i = 1; i < steps.length; i++) {
+        expect(steps[i] - steps[i - 1]).toBeLessThanOrEqual(20 + 1e-9);
+      }
+    }
+  });
+
+  it('honours the set cap on very heavy pulls', () => {
+    expect(rampKg(300).length).toBeLessThanOrEqual(WARMUP_MAX_SETS);
+    expect(rampKg(500).length).toBeLessThanOrEqual(WARMUP_MAX_SETS);
+  });
+
+  it('keeps every warmup set at 5 reps', () => {
+    const sets = getWarmupSets(140, KG.bar, KG.plates, false, KG.minPlate, kgRamp);
+    expect(sets.every((s) => s.reps === 5)).toBe(true);
+  });
+
+  it('never ramps at or above the working weight, and never repeats a weight', () => {
+    for (const w of [40, 60, 80, 100, 140, 180, 220]) {
+      const weights = rampKg(w);
+      expect(weights.every((x) => x < w)).toBe(true);
+      expect(new Set(weights).size).toBe(weights.length);
+    }
+  });
+
+  it('only loads plates the lifter actually owns', () => {
+    // No 20kg or 15kg plates — the ramp must still be loadable.
+    const owned = [25, 10, 5, 2.5, 1.25];
+    const weights = getWarmupSets(140, 20, owned, false, 5, kgRamp).map((s) => s.weight);
+    for (const w of weights) {
+      const perSide = (w - 20) / 2;
+      expect(getPlatesPerSide(w, 20, owned).reduce((a, b) => a + b, 0)).toBeCloseTo(perSide, 6);
+    }
+  });
+
+  it('returns no warmup when the work weight is at or below the ramp floor', () => {
+    expect(rampKg(30)).toEqual([]);
+    expect(rampKg(20)).toEqual([]);
+  });
+});
+
+// =========================================================================
+// getWarmupRamp
+// =========================================================================
+describe('getWarmupRamp', () => {
+  const profile = { warmupMaxStep: 20, warmupFloorMin: 30, warmupFloorMax: 60 };
+
+  it('is enabled for the deadlift only', () => {
+    expect(getWarmupRamp('deadlift', profile)).not.toBeNull();
+    for (const key of ['squat', 'benchPress', 'overheadPress', 'barbellRow']) {
+      expect(getWarmupRamp(key, profile)).toBeNull();
+    }
+  });
+
+  it('reads the step and floor band off the unit profile', () => {
+    expect(getWarmupRamp('deadlift', profile)).toEqual({
+      maxStep: 20, floorMin: 30, floorMax: 60, maxSets: WARMUP_MAX_SETS,
+    });
+  });
+
+  it('falls back to kg defaults when no profile is given', () => {
+    expect(getWarmupRamp('deadlift', undefined).maxStep).toBe(20);
   });
 });
 
